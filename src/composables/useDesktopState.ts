@@ -2015,7 +2015,7 @@ export function useDesktopState() {
       const isProviderBacked = targetProviderId !== 'codex'
       const normalizedSelectedModelId = readModelIdForThread(selectedThreadId.value)
       const modelIds = await getAvailableModelIds({
-        includeProviderModels: isProviderBacked || options?.includeProviderModels !== false,
+        includeProviderModels: isProviderBacked,
         requireProviderModels: isProviderBacked,
         providerId: isProviderBacked ? targetProviderId : undefined,
       })

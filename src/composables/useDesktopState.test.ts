@@ -1004,6 +1004,42 @@ describe('realtime bridge sync', () => {
 })
 
 describe('provider model selection', () => {
+  it('loads Codex models only from the Desktop model catalog', async () => {
+    installTestWindow()
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({ groups: [], nextCursor: null })
+    gatewayMocks.getAvailableCollaborationModes.mockResolvedValue([{ value: 'default', label: 'Default' }])
+    gatewayMocks.getSkillsList.mockResolvedValue([])
+    gatewayMocks.getAccountRateLimits.mockResolvedValue(null)
+    gatewayMocks.getCurrentModelConfig.mockResolvedValue({
+      model: 'gpt-5.6-terra',
+      providerId: 'OpenAI',
+      reasoningEffort: 'ultra',
+      speedMode: 'fast',
+    })
+    gatewayMocks.getAvailableModelIds.mockResolvedValue([
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'gpt-5.5',
+    ])
+
+    const state = useDesktopState()
+    await state.refreshAll({ includeSelectedThreadMessages: false, awaitAncillaryRefreshes: true })
+
+    expect(gatewayMocks.getAvailableModelIds).toHaveBeenCalledWith({
+      includeProviderModels: false,
+      requireProviderModels: false,
+      providerId: undefined,
+    })
+    expect(state.availableModelIds.value).toEqual([
+      'gpt-5.6-sol',
+      'gpt-5.6-terra',
+      'gpt-5.6-luna',
+      'gpt-5.5',
+    ])
+    expect(state.selectedModelId.value).toBe('gpt-5.6-terra')
+  })
+
   it('ignores global selected-model localStorage when OpenCode Zen is the active provider', async () => {
     installTestWindow({
       'codex-web-local.selected-model-by-context.v1': JSON.stringify({
