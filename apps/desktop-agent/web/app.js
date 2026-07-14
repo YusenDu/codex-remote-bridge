@@ -17,7 +17,7 @@ const elements = Object.fromEntries(
     'status-text', 'qr-code', 'access-url', 'copy-url', 'open-web', 'access-note',
     'access-error', 'form', 'serverUrl', 'webUrl', 'deviceId', 'deviceName', 'token',
     'autoStart', 'settings-error', 'save', 'cancel', 'window-minimize', 'window-maximize',
-    'window-close', 'window-titlebar',
+    'window-close', 'window-titlebar', 'app-version',
   ].map((id) => [id, document.getElementById(id)]),
 );
 
@@ -49,6 +49,7 @@ async function invoke(command, args) {
       desktopState: 'ready',
     };
   }
+  if (command === 'get_app_version') return '0.1.89';
   if (command === 'save_config') {
     Object.assign(previewState, args.input, { hasToken: true, connectionState: '服务器：已连接' });
     return null;
@@ -112,6 +113,11 @@ async function loadAccess() {
     elements['status-text'].textContent = '无法生成访问入口';
     elements['access-error'].textContent = String(reason);
   }
+}
+
+async function loadVersion() {
+  const version = await invoke('get_app_version');
+  elements['app-version'].textContent = `v${version}`;
 }
 
 async function loadSettings() {
@@ -197,5 +203,6 @@ elements.form.addEventListener('submit', async (event) => {
   }
 });
 
+loadVersion().catch(() => {});
 loadAccess();
 window.setInterval(() => refreshStatus().catch(() => {}), 2000);

@@ -154,6 +154,11 @@ fn hide_settings(app: AppHandle) -> Result<(), String> {
     hide_window(app.get_webview_window("settings").as_ref())
 }
 
+#[tauri::command]
+fn get_app_version() -> &'static str {
+    env!("CARGO_PKG_VERSION")
+}
+
 async fn restart_agent(state: &AppState) -> Result<(), String> {
     match state
         .store
@@ -195,6 +200,12 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         agent,
         auto_start_item: Mutex::new(None),
     });
+    if let (Some(window), Some(icon)) = (
+        app.get_webview_window("settings"),
+        app.default_window_icon(),
+    ) {
+        window.set_icon(icon.clone())?;
+    }
     apply_autostart(app.handle(), initial_auto_start).map_err(std::io::Error::other)?;
     build_tray(app, initial_auto_start)?;
 
@@ -415,6 +426,7 @@ pub fn run() {
             get_config,
             get_status,
             get_mobile_access,
+            get_app_version,
             open_mobile_access,
             save_config,
             hide_settings
@@ -528,6 +540,21 @@ mod tests {
             assert!(script.contains(&format!("controlWindow('{control}')")));
         }
         assert!(script.contains("controlWindow('drag')"));
+    }
+
+    #[test]
+    fn desktop_surfaces_use_the_shared_icon_and_visible_version() {
+        let html = include_str!("../../web/index.html");
+        let script = include_str!("../../web/app.js");
+        let source = include_str!("lib.rs");
+        let config = include_str!("../tauri.conf.json");
+
+        assert!(html.contains("src=\"./app-icon.png\""));
+        assert!(html.contains("id=\"app-version\""));
+        assert!(script.contains("get_app_version"));
+        assert!(source.contains("window.set_icon(icon.clone())"));
+        assert!(config.contains("\"installerIcon\": \"icons/icon.ico\""));
+        assert!(config.contains("\"uninstallerIcon\": \"icons/icon.ico\""));
     }
 
     #[test]

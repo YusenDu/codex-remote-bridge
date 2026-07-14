@@ -74,6 +74,12 @@ button:disabled {
   height: 18px;
 }
 
+.brand-version {
+  color: #7f878b;
+  font-size: 10px;
+  font-weight: 500;
+}
+
 .text-button,
 .back-button {
   border: 0;
