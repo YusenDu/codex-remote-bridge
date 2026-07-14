@@ -504,7 +504,7 @@
             <IconTablerSettings class="sidebar-settings-icon" />
             <span>{{ t('Settings') }}</span>
             <span class="sidebar-settings-button-version">
-              {{ worktreeName }} · v{{ appVersion }}
+              codex-web v{{ appVersion }}
             </span>
           </button>
         </div>
