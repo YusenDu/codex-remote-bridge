@@ -347,8 +347,8 @@ fn default_config() -> AgentConfig {
         format!("{username}\0{device_name}").as_bytes(),
     ));
     AgentConfig {
-        server_url: "http://127.0.0.1:5900".into(),
-        web_url: "http://127.0.0.1:5900".into(),
+        server_url: "https://codex-bridge.120.48.173.147.sslip.io".into(),
+        web_url: "https://codex-bridge.120.48.173.147.sslip.io".into(),
         device_id: format!("desktop-{}", &suffix[..12]),
         device_name,
         auto_start: false,
@@ -433,6 +433,16 @@ mod tests {
         assert!(!should_update_autostart(true, true));
         assert!(should_update_autostart(false, true));
         assert!(should_update_autostart(true, false));
+    }
+
+    #[test]
+    fn default_config_uses_the_public_bridge_server() {
+        let config = default_config();
+        assert_eq!(
+            config.server_url,
+            "https://codex-bridge.120.48.173.147.sslip.io"
+        );
+        assert_eq!(config.web_url, config.server_url);
     }
 
     #[test]

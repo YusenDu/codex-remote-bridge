@@ -1,6 +1,6 @@
 [package]
 name = "codex-bridge-agent"
-version = "0.1.87"
+version = "0.1.88"
 description = "Tauri Windows tray bridge for Codex Desktop"
 authors = ["Codex Web contributors"]
 license = "MIT"

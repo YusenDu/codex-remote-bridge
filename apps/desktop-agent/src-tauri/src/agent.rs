@@ -514,6 +514,16 @@ mod tests {
     }
 
     #[test]
+    fn public_bridge_server_uses_wss() {
+        assert_eq!(
+            agent_websocket_url("https://codex-bridge.120.48.173.147.sslip.io")
+                .unwrap()
+                .as_str(),
+            "wss://codex-bridge.120.48.173.147.sslip.io/codex-api/agent/ws"
+        );
+    }
+
+    #[test]
     fn websocket_control_frames_do_not_end_the_agent_session() {
         assert!(decode_ws_message(Message::Ping(Vec::new().into()))
             .unwrap()
