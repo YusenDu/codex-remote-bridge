@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  appendActiveDeviceId,
   clearActiveDeviceId,
   getActiveDeviceId,
   normalizeDeviceId,
@@ -40,5 +41,16 @@ describe('device context', () => {
 
     expect(setActiveDeviceId('../desktop-b', storage)).toBeNull()
     expect(getActiveDeviceId(storage)).toBe('desktop-a')
+  })
+
+  it('adds the selected machine to non-RPC API query parameters', () => {
+    const storage = memoryStorage()
+    setActiveDeviceId('desktop-a', storage)
+    const query = new URLSearchParams({ cwd: 'K:\\project' })
+
+    appendActiveDeviceId(query, storage)
+
+    expect(query.get('deviceId')).toBe('desktop-a')
+    expect(query.get('cwd')).toBe('K:\\project')
   })
 })

@@ -10,6 +10,7 @@ import {
   forwardDesktopBridgeEvent,
   mergeSessionCommandsIntoThreadResult,
   normalizeDesktopAgentDeviceId,
+  readDesktopAgentDeviceIdFromUrl,
   readBridgeUserMessageFromTurnStart,
   readDesktopAgentDeviceId,
   readThreadSessionRuntimeState,
@@ -59,6 +60,18 @@ describe('realtime bridge turn metadata', () => {
       CODEXUI_AGENT_DEVICE_ID: 'desktop-env',
     })).toBe('desktop-top')
     expect(readDesktopAgentDeviceId(params, undefined, {})).toBe('desktop-metadata')
+  })
+
+  it('reads a validated machine code from local API query parameters', () => {
+    expect(readDesktopAgentDeviceIdFromUrl(new URL(
+      'https://codex.example.com/codex-api/git/branches?deviceId=desktop-a',
+    ))).toBe('desktop-a')
+    expect(readDesktopAgentDeviceIdFromUrl(new URL(
+      'https://codex.example.com/codex-api/git/branches',
+    ))).toBeUndefined()
+    expect(() => readDesktopAgentDeviceIdFromUrl(new URL(
+      'https://codex.example.com/codex-api/git/branches?deviceId=../desktop-a',
+    ))).toThrow('deviceId is invalid')
   })
 
   it('scopes optimistic web user messages to the requested machine', () => {

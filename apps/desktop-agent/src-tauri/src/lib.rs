@@ -1,15 +1,17 @@
 mod agent;
 mod cdp;
 mod config;
+mod local_ops;
 mod mobile_access;
 mod protocol;
 
 use agent::{AgentController, AgentStatus};
 use cdp::{BridgeStatus, DesktopBridge};
-use config::{AgentConfig, AgentConfigInput, ConfigStore, WindowsCredentialStore};
+use config::{
+    generate_device_id, AgentConfig, AgentConfigInput, ConfigStore, WindowsCredentialStore,
+};
 use mobile_access::build_mobile_access;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use std::sync::{Arc, Mutex};
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -21,6 +23,7 @@ use tauri_plugin_opener::OpenerExt;
 
 struct AppState {
     store: ConfigStore,
+    default_config: AgentConfig,
     bridge: DesktopBridge,
     agent: AgentController,
     auto_start_item: Mutex<Option<CheckMenuItem<Wry>>>,
@@ -66,7 +69,7 @@ async fn get_config(state: State<'_, AppState>) -> Result<ConfigView, String> {
         .store
         .load()
         .map_err(|error| error.to_string())?
-        .unwrap_or_else(default_config);
+        .unwrap_or_else(|| state.default_config.clone());
     let has_token = state
         .store
         .has_token(&config.device_id)
@@ -99,7 +102,7 @@ async fn get_status(state: State<'_, AppState>) -> Result<StatusView, String> {
 async fn get_mobile_access(state: State<'_, AppState>) -> Result<MobileAccessView, String> {
     let stored = state.store.load().map_err(|error| error.to_string())?;
     let configured = stored.is_some();
-    let config = stored.unwrap_or_else(default_config);
+    let config = stored.unwrap_or_else(|| state.default_config.clone());
     let has_token = state
         .store
         .has_token(&config.device_id)
@@ -127,8 +130,14 @@ fn open_mobile_access(app: AppHandle, state: State<'_, AppState>) -> Result<(), 
 async fn save_config(
     app: AppHandle,
     state: State<'_, AppState>,
-    input: AgentConfigInput,
+    mut input: AgentConfigInput,
 ) -> Result<(), String> {
+    input.device_id = state
+        .store
+        .load()
+        .map_err(|error| error.to_string())?
+        .unwrap_or_else(|| state.default_config.clone())
+        .device_id;
     let config = state.store.save(input).map_err(|error| error.to_string())?;
     apply_autostart(&app, config.auto_start)?;
     if let Ok(item) = state.auto_start_item.lock() {
@@ -175,11 +184,13 @@ fn setup_app(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     bridge.start_keep_alive();
     let agent = AgentController::new(bridge.clone());
     let initial_config = store.load()?;
+    let default_config = initial_config.clone().unwrap_or_else(default_config);
     let initial_auto_start = initial_config
         .as_ref()
         .is_some_and(|config| config.auto_start);
     app.manage(AppState {
         store: store.clone(),
+        default_config,
         bridge,
         agent,
         auto_start_item: Mutex::new(None),
@@ -342,14 +353,10 @@ fn hide_window(window: Option<&WebviewWindow>) -> Result<(), String> {
 
 fn default_config() -> AgentConfig {
     let device_name = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Windows PC".into());
-    let username = std::env::var("USERNAME").unwrap_or_default();
-    let suffix = hex::encode(Sha256::digest(
-        format!("{username}\0{device_name}").as_bytes(),
-    ));
     AgentConfig {
         server_url: "https://codex-bridge.120.48.173.147.sslip.io".into(),
-        web_url: "https://codex-bridge.120.48.173.147.sslip.io".into(),
-        device_id: format!("desktop-{}", &suffix[..12]),
+        web_url: "https://codex-bridge.120.48.173.147.sslip.io/".into(),
+        device_id: generate_device_id(),
         device_name,
         auto_start: false,
     }
@@ -428,21 +435,27 @@ mod tests {
     use super::*;
 
     #[test]
+    fn default_config_uses_the_public_bridge_server() {
+        let config = default_config();
+
+        assert_eq!(
+            config.server_url,
+            "https://codex-bridge.120.48.173.147.sslip.io"
+        );
+        assert_eq!(
+            config.web_url,
+            "https://codex-bridge.120.48.173.147.sslip.io/"
+        );
+        assert!(config.device_id.starts_with("desktop-"));
+        assert_eq!(config.device_id.len(), 40);
+    }
+
+    #[test]
     fn autostart_is_only_written_when_the_desired_state_changes() {
         assert!(!should_update_autostart(false, false));
         assert!(!should_update_autostart(true, true));
         assert!(should_update_autostart(false, true));
         assert!(should_update_autostart(true, false));
-    }
-
-    #[test]
-    fn default_config_uses_the_public_bridge_server() {
-        let config = default_config();
-        assert_eq!(
-            config.server_url,
-            "https://codex-bridge.120.48.173.147.sslip.io"
-        );
-        assert_eq!(config.web_url, config.server_url);
     }
 
     #[test]
@@ -471,22 +484,50 @@ mod tests {
             "id=\"qr-code\"",
             "id=\"access-url\"",
             "id=\"open-settings\"",
+            "id=\"window-minimize\"",
+            "id=\"window-maximize\"",
+            "id=\"window-close\"",
             "id=\"settings-view\"",
+            "src=\"./app-icon.png\"",
             "href=\"./styles.css\"",
             "src=\"./app.js\"",
         ] {
-            assert!(html.contains(contract), "missing QR layout contract: {contract}");
+            assert!(
+                html.contains(contract),
+                "missing QR layout contract: {contract}"
+            );
         }
 
         let access_view = html.find("id=\"access-view\"").unwrap();
         let settings_view = html.find("id=\"settings-view\"").unwrap();
         assert!(access_view < settings_view);
-        for input in ["serverUrl", "webUrl", "deviceId", "deviceName", "token", "autoStart"] {
+        for input in [
+            "serverUrl",
+            "webUrl",
+            "deviceId",
+            "deviceName",
+            "token",
+            "autoStart",
+        ] {
             let position = html
                 .find(&format!("id=\"{input}\""))
                 .unwrap_or_else(|| panic!("missing settings input: {input}"));
-            assert!(position > settings_view, "{input} must remain in secondary settings");
+            assert!(
+                position > settings_view,
+                "{input} must remain in secondary settings"
+            );
         }
+    }
+
+    #[test]
+    fn settings_window_uses_custom_window_controls() {
+        let html = include_str!("../../web/index.html");
+        let script = include_str!("../../web/app.js");
+        assert!(html.matches("data-tauri-drag-region").count() >= 4);
+        for control in ["minimize", "maximize", "close"] {
+            assert!(script.contains(&format!("controlWindow('{control}')")));
+        }
+        assert!(script.contains("controlWindow('drag')"));
     }
 
     #[test]
@@ -500,6 +541,13 @@ mod tests {
             .expect("clipboard write must be present");
 
         assert!(feedback < clipboard);
+    }
+
+    #[test]
+    fn settings_page_disables_the_native_context_menu() {
+        let script = include_str!("../../web/app.js");
+        assert!(script.contains("addEventListener('contextmenu'"));
+        assert!(script.contains("event.preventDefault()"));
     }
 
     #[test]
@@ -523,7 +571,10 @@ mod tests {
         let view = build_mobile_access_view(&config, true, true, &agent, &desktop).unwrap();
         let payload = serde_json::to_value(view).unwrap();
 
-        assert_eq!(payload["accessUrl"], "https://codex.example.com/app#/device/desktop-a");
+        assert_eq!(
+            payload["accessUrl"],
+            "https://codex.example.com/app#/device/desktop-a"
+        );
         assert_eq!(payload["configured"], true);
         assert_eq!(payload["hasToken"], true);
         assert_eq!(payload["desktopState"], "ready");

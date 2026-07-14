@@ -16,6 +16,7 @@ import { buildAppServerArgs } from './appServerRuntimeConfig.js'
 import { CodexDesktopCdpBridge, type DesktopBridgeEvent } from './codexDesktopCdp/codexDesktopCdpBridge.js'
 import {
   buildDesktopBridgeHealth,
+  dispatchDesktopAgentLocalOperation,
   dispatchDesktopAgentRpc,
   dispatchDesktopCdpRpc,
   readDesktopBridgeMode,
@@ -8186,6 +8187,14 @@ export function normalizeDesktopAgentDeviceId(value: unknown): string | undefine
     : undefined
 }
 
+export function readDesktopAgentDeviceIdFromUrl(url: URL): string | undefined {
+  const raw = url.searchParams.get('deviceId')
+  if (raw === null || raw.trim() === '') return undefined
+  const deviceId = normalizeDesktopAgentDeviceId(raw)
+  if (!deviceId) throw new Error('deviceId is invalid')
+  return deviceId
+}
+
 export function readDesktopAgentDeviceId(
   params: unknown,
   explicitDeviceId?: unknown,
@@ -9638,6 +9647,22 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
           setJson(res, 400, { error: 'Missing sourceCwd' })
           return
         }
+        try {
+          const dispatch = await dispatchDesktopAgentLocalOperation(
+            desktopBridgeMode,
+            'worktree-branches',
+            { sourceCwd: rawSourceCwd },
+            desktopAgentRelay,
+            readDesktopAgentDeviceIdFromUrl(url),
+          )
+          if (dispatch.handled) {
+            setJson(res, 200, { data: dispatch.result })
+            return
+          }
+        } catch (error) {
+          setJson(res, 502, { error: getErrorMessage(error, 'Failed to load branches from desktop') })
+          return
+        }
         const sourceCwd = isAbsolute(rawSourceCwd) ? rawSourceCwd : resolve(rawSourceCwd)
         try {
           const sourceInfo = await stat(sourceCwd)
@@ -9696,6 +9721,22 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         const rawCwd = (url.searchParams.get('cwd') ?? '').trim()
         if (!rawCwd) {
           setJson(res, 400, { error: 'Missing cwd' })
+          return
+        }
+        try {
+          const dispatch = await dispatchDesktopAgentLocalOperation(
+            desktopBridgeMode,
+            'git-branches',
+            { cwd: rawCwd },
+            desktopAgentRelay,
+            readDesktopAgentDeviceIdFromUrl(url),
+          )
+          if (dispatch.handled) {
+            setJson(res, 200, { data: dispatch.result })
+            return
+          }
+        } catch (error) {
+          setJson(res, 502, { error: getErrorMessage(error, 'Failed to read Git branches from desktop') })
           return
         }
         const cwd = isAbsolute(rawCwd) ? rawCwd : resolve(rawCwd)
@@ -10231,6 +10272,22 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
         const basePath = url.searchParams.get('basePath')?.trim() ?? ''
         if (!basePath) {
           setJson(res, 400, { error: 'Missing basePath' })
+          return
+        }
+        try {
+          const dispatch = await dispatchDesktopAgentLocalOperation(
+            desktopBridgeMode,
+            'project-root-suggestion',
+            { basePath },
+            desktopAgentRelay,
+            readDesktopAgentDeviceIdFromUrl(url),
+          )
+          if (dispatch.handled) {
+            setJson(res, 200, { data: dispatch.result })
+            return
+          }
+        } catch (error) {
+          setJson(res, 502, { error: getErrorMessage(error, 'Failed to suggest project name on desktop') })
           return
         }
         const normalizedBasePath = isAbsolute(basePath) ? basePath : resolve(basePath)

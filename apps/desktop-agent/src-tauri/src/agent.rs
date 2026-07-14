@@ -1,6 +1,7 @@
 use crate::{
     cdp::DesktopBridge,
     config::RuntimeConfig,
+    local_ops,
     protocol::{
         decode_message, encode_message, encode_response_frames, AgentMessage, AgentRequestMethod,
         AgentResponseError, AGENT_PROTOCOL_VERSION,
@@ -378,12 +379,11 @@ async fn execute_request(
                 .ok_or_else(|| anyhow!("RPC request is missing method"));
             match rpc_method {
                 Ok(rpc_method) => {
-                    bridge
-                        .rpc(
-                            rpc_method,
-                            params.get("params").cloned().unwrap_or(Value::Null),
-                        )
-                        .await
+                    let rpc_params = params.get("params").cloned().unwrap_or(Value::Null);
+                    match local_ops::execute(rpc_method, rpc_params.clone()).await {
+                        Some(result) => result,
+                        None => bridge.rpc(rpc_method, rpc_params).await,
+                    }
                 }
                 Err(error) => Err(error),
             }
@@ -495,6 +495,7 @@ fn redact_url(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::json;
 
     #[test]
     fn converts_only_secure_or_loopback_server_urls() {
@@ -521,6 +522,23 @@ mod tests {
                 .as_str(),
             "wss://codex-bridge.120.48.173.147.sslip.io/codex-api/agent/ws"
         );
+    }
+
+    #[tokio::test]
+    async fn local_operations_do_not_require_the_cdp_bridge() {
+        let root = tempfile::tempdir().unwrap();
+        let response = execute_request(
+            &DesktopBridge::new(),
+            "req:local-op",
+            AgentRequestMethod::Rpc,
+            json!({
+                "method": "codex-web/local/project-root-suggestion",
+                "params": { "basePath": root.path() },
+            }),
+        )
+        .await;
+
+        assert!(matches!(response, AgentMessage::Response { ok: true, .. }));
     }
 
     #[test]
@@ -550,7 +568,10 @@ mod tests {
         cache.insert("second".into(), vec!["abcdef".into()], started);
 
         assert!(cache.get("first", started).is_none());
-        assert_eq!(cache.get("second", started), Some(&["abcdef".to_owned()][..]));
+        assert_eq!(
+            cache.get("second", started),
+            Some(&["abcdef".to_owned()][..])
+        );
 
         cache.insert("too-large".into(), vec!["x".repeat(11)], started);
         assert!(cache.get("too-large", started).is_none());

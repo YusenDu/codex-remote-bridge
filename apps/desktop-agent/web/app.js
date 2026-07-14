@@ -2,7 +2,7 @@ const PREVIEW_QR = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 29 29" 
 
 const previewState = {
   serverUrl: 'https://codex-bridge.120.48.173.147.sslip.io',
-  webUrl: 'https://codex-bridge.120.48.173.147.sslip.io',
+  webUrl: 'https://codex-bridge.120.48.173.147.sslip.io/',
   deviceId: 'desktop-a8f12c',
   deviceName: 'DESKTOP-8928I4F',
   autoStart: true,
@@ -16,11 +16,14 @@ const elements = Object.fromEntries(
     'access-view', 'settings-view', 'open-settings', 'back-to-access', 'status-line',
     'status-text', 'qr-code', 'access-url', 'copy-url', 'open-web', 'access-note',
     'access-error', 'form', 'serverUrl', 'webUrl', 'deviceId', 'deviceName', 'token',
-    'autoStart', 'settings-error', 'save', 'cancel',
+    'autoStart', 'settings-error', 'save', 'cancel', 'window-minimize', 'window-maximize',
+    'window-close', 'window-titlebar',
   ].map((id) => [id, document.getElementById(id)]),
 );
 
 let currentAccess = null;
+
+document.addEventListener('contextmenu', (event) => event.preventDefault());
 
 function previewAccessUrl() {
   const base = previewState.webUrl.replace(/[?#].*$/u, '').replace(/\/+$/u, '');
@@ -51,6 +54,15 @@ async function invoke(command, args) {
     return null;
   }
   return null;
+}
+
+async function controlWindow(action) {
+  const appWindow = window.__TAURI__?.window?.getCurrentWindow?.();
+  if (!appWindow) return;
+  if (action === 'minimize') await appWindow.minimize();
+  if (action === 'maximize') await appWindow.toggleMaximize();
+  if (action === 'close') await appWindow.close();
+  if (action === 'drag') await appWindow.startDragging();
 }
 
 function showView(name) {
@@ -152,6 +164,17 @@ elements['back-to-access'].addEventListener('click', () => showView('access'));
 elements['copy-url'].addEventListener('click', copyAccessUrl);
 elements['open-web'].addEventListener('click', () => invoke('open_mobile_access'));
 elements.cancel.addEventListener('click', () => invoke('hide_settings'));
+elements['window-minimize'].addEventListener('click', () => controlWindow('minimize'));
+elements['window-maximize'].addEventListener('click', () => controlWindow('maximize'));
+elements['window-close'].addEventListener('click', () => controlWindow('close'));
+elements['window-titlebar'].addEventListener('mousedown', (event) => {
+  if (event.button !== 0 || event.target.closest('button')) return;
+  controlWindow('drag');
+});
+elements['window-titlebar'].addEventListener('dblclick', (event) => {
+  if (event.target.closest('button')) return;
+  controlWindow('maximize');
+});
 
 elements.form.addEventListener('submit', async (event) => {
   event.preventDefault();

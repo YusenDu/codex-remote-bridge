@@ -59,6 +59,7 @@ import type {
   UiThreadAutomationStatus,
 } from '../types/codex'
 import { normalizePathForUi } from '../pathUtils.js'
+import { appendActiveDeviceId } from './deviceContext'
 
 type CurrentModelConfig = {
   model: string
@@ -2700,6 +2701,7 @@ export async function getWorktreeBranchOptions(sourceCwd: string): Promise<Workt
   const normalizedSourceCwd = sourceCwd.trim()
   if (!normalizedSourceCwd) return []
   const query = new URLSearchParams({ sourceCwd: normalizedSourceCwd })
+  appendActiveDeviceId(query)
   const response = await fetch(`/codex-api/worktree/branches?${query.toString()}`)
   const payload = (await response.json()) as { data?: unknown; error?: string }
   if (!response.ok) {
@@ -2729,6 +2731,7 @@ export async function getGitBranchState(cwd: string): Promise<GitBranchState> {
     return { currentBranch: null, headSha: null, headSubject: null, headDate: null, detached: false, dirty: false, gitRoot: '', options: [] }
   }
   const query = new URLSearchParams({ cwd: normalizedCwd })
+  appendActiveDeviceId(query)
   const response = await fetch(`/codex-api/git/branches?${query.toString()}`)
   const payload = (await response.json()) as { data?: unknown; error?: string }
   if (!response.ok) {
@@ -3263,6 +3266,7 @@ export async function createProjectlessThreadDirectory(prompt?: string): Promise
 
 export async function getProjectRootSuggestion(basePath: string): Promise<{ name: string; path: string }> {
   const query = new URLSearchParams({ basePath })
+  appendActiveDeviceId(query)
   const response = await fetch(`/codex-api/project-root-suggestion?${query.toString()}`)
   const payload = (await response.json()) as unknown
   if (!response.ok) {

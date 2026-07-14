@@ -1,0 +1,99 @@
+{
+  "name": "codexapp",
+  "version": "0.1.89",
+  "description": "A lightweight web interface for Codex that runs on top of the Codex app-server, allowing remote access from any browser",
+  "type": "module",
+  "license": "MIT",
+  "author": "Pavel Voronin, Igor Levochkin",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/friuns2/codexui.git"
+  },
+  "homepage": "https://github.com/friuns2/codexui#readme",
+  "bugs": {
+    "url": "https://github.com/friuns2/codexui/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "codex",
+    "openai",
+    "web-ui",
+    "remote",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "codexapp": "dist-cli/index.js",
+    "codexui": "dist-cli/index.js"
+  },
+  "files": [
+    "dist/",
+    "dist-cli/",
+    "scripts/dev.cjs",
+    "scripts/dev-random-home.cjs",
+    "scripts/fix-pty-native-build.cjs"
+  ],
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@firebase/util",
+      "esbuild",
+      "node-pty",
+      "protobufjs"
+    ]
+  },
+  "scripts": {
+    "dev": "node scripts/dev.cjs",
+    "dev2": "node scripts/dev-random-home.cjs",
+    "dev:open": "pnpm run build:cli && sh -c 'pnpm run dev & VPID=$!; node dist-cli/index.js --open-project \"${1:-.}\"; wait $VPID' --",
+    "build:frontend": "vue-tsc --noEmit && vite build",
+    "build:cli": "tsup",
+    "build:agent": "pnpm --dir apps/desktop-agent tauri build --no-bundle",
+    "package:agent": "pnpm --dir apps/desktop-agent tauri build --bundles nsis",
+    "dev:agent": "pnpm --dir apps/desktop-agent tauri dev",
+    "build": "pnpm run build:frontend && pnpm run build:cli",
+    "postinstall": "node scripts/fix-pty-native-build.cjs",
+    "test:unit": "vitest run",
+    "preview": "vite preview",
+    "prepublishOnly": "pnpm run build",
+    "profile:browser": "node scripts/profile-browser-runtime.cjs",
+    "profile:thread": "PROFILE_ROUTE='#/thread/019da7c0-4e12-7a91-837c-f7c11cc8ab6c' node scripts/profile-browser-runtime.cjs"
+  },
+  "dependencies": {
+    "@composio/client": "0.1.0-alpha.66",
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "commander": "^13.1.0",
+    "express": "^5.1.0",
+    "firebase": "^12.2.1",
+    "highlight.js": "^11.11.1",
+    "qrcode-terminal": "^0.12.0",
+    "ws": "^8.18.3"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.59.1",
+    "@tailwindcss/vite": "^4.1.18",
+    "@tauri-apps/cli": "^2.11.4",
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.13.2",
+    "@types/qrcode-terminal": "^0.12.2",
+    "@types/ws": "^8.18.1",
+    "@vitejs/plugin-vue": "^5.2.1",
+    "playwright": "^1.59.1",
+    "tailwindcss": "^4.1.18",
+    "tsup": "^8.4.0",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.0",
+    "vitest": "^4.1.5",
+    "vue": "^3.5.13",
+    "vue-router": "^4.6.4",
+    "vue-tsc": "^2.2.0"
+  },
+  "packageManager": "pnpm@8.9.2+sha512.b9d35fe91b2a5854dadc43034a3e7b2e675fa4b56e20e8e09ef078fa553c18f8aed44051e7b36e8b8dd435f97eb0c44c4ff3b44fc7c6fa7d21e1fac17bbe661e"
+}

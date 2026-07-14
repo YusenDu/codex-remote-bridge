@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   buildDesktopBridgeHealth,
   dispatchDesktopAgentRpc,
+  dispatchDesktopAgentLocalOperation,
   dispatchDesktopCdpRpc,
   readDesktopBridgeMode,
   shouldUseLocalCodexAppServer,
@@ -114,5 +115,30 @@ describe('Desktop CDP RPC routing', () => {
     await expect(dispatchDesktopAgentRpc('thread/list', { limit: 20 }, relay, 'desktop-a'))
       .resolves.toEqual({ handled: true, result: { data: [] } })
     expect(relay.rpc).toHaveBeenCalledWith('thread/list', { limit: 20 }, 'desktop-a')
+  })
+
+  it('routes local filesystem operations only in agent mode', async () => {
+    const relay = { rpc: vi.fn().mockResolvedValue({ name: 'New Project (1)' }) }
+
+    await expect(dispatchDesktopAgentLocalOperation(
+      'agent',
+      'project-root-suggestion',
+      { basePath: 'K:\\projects' },
+      relay,
+      'desktop-a',
+    )).resolves.toEqual({ handled: true, result: { name: 'New Project (1)' } })
+    expect(relay.rpc).toHaveBeenCalledWith(
+      'codex-web/local/project-root-suggestion',
+      { basePath: 'K:\\projects' },
+      'desktop-a',
+    )
+
+    await expect(dispatchDesktopAgentLocalOperation(
+      'off',
+      'project-root-suggestion',
+      { basePath: 'K:\\projects' },
+      relay,
+      'desktop-a',
+    )).resolves.toEqual({ handled: false })
   })
 })

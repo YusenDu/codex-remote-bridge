@@ -9,6 +9,13 @@ use url::Url;
 use uuid::Uuid;
 
 const CREDENTIAL_SERVICE: &str = "Codex Bridge Agent";
+const PUBLIC_BRIDGE_URL: &str = "https://codex-bridge.120.48.173.147.sslip.io";
+const LEGACY_LOCAL_URLS: [&str; 2] = ["http://127.0.0.1:5900", "http://127.0.0.1:5912"];
+const DEVICE_ID_PREFIX: &str = "desktop-";
+
+pub fn generate_device_id() -> String {
+    format!("{DEVICE_ID_PREFIX}{}", Uuid::new_v4().simple())
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -94,8 +101,23 @@ impl ConfigStore {
         if persisted.version != 1 {
             return Err(ConfigError::Invalid("unsupported config version".into()));
         }
-        validate_config(&persisted.config)?;
-        Ok(Some(persisted.config))
+        let previous = persisted.config;
+        let mut config = previous.clone();
+        migrate_legacy_local_urls(&mut config);
+        let previous_device_id = config.device_id.clone();
+        if !is_generated_device_id(&config.device_id) {
+            config.device_id = generate_device_id();
+        }
+        validate_config(&config)?;
+        if config != previous {
+            if previous_device_id != config.device_id {
+                if let Some(secret) = self.secrets.get(&previous_device_id)? {
+                    self.secrets.set(&config.device_id, &secret)?;
+                }
+            }
+            self.persist(&config)?;
+        }
+        Ok(Some(config))
     }
 
     pub fn load_runtime(&self) -> Result<Option<RuntimeConfig>, ConfigError> {
@@ -137,6 +159,11 @@ impl ConfigStore {
             self.secrets.set(&config.device_id, &input.token)?;
         }
 
+        self.persist(&config)?;
+        Ok(config)
+    }
+
+    fn persist(&self, config: &AgentConfig) -> Result<(), ConfigError> {
         let persisted = PersistedConfig {
             version: 1,
             config: config.clone(),
@@ -153,8 +180,24 @@ impl ConfigStore {
             let _ = fs::remove_file(&temp_path);
             return Err(error.into());
         }
-        Ok(config)
+        Ok(())
     }
+}
+
+fn migrate_legacy_local_urls(config: &mut AgentConfig) {
+    if LEGACY_LOCAL_URLS.contains(&config.server_url.trim_end_matches('/')) {
+        config.server_url = PUBLIC_BRIDGE_URL.to_owned();
+    }
+    if LEGACY_LOCAL_URLS.contains(&config.web_url.trim_end_matches('/')) {
+        config.web_url = format!("{PUBLIC_BRIDGE_URL}/");
+    }
+}
+
+fn is_generated_device_id(device_id: &str) -> bool {
+    let Some(value) = device_id.strip_prefix(DEVICE_ID_PREFIX) else {
+        return false;
+    };
+    value.len() == 32 && value.bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 #[derive(Debug, Error)]
@@ -265,7 +308,7 @@ mod tests {
         AgentConfigInput {
             server_url: "https://codex.example.com/".into(),
             web_url: "https://codex.example.com/".into(),
-            device_id: "desktop-a".into(),
+            device_id: "desktop-0123456789abcdef0123456789abcdef".into(),
             device_name: "Workstation".into(),
             token: token.into(),
             auto_start: true,
@@ -282,7 +325,10 @@ mod tests {
         assert!(!raw.contains("pairing-secret"));
         let runtime = store.load_runtime().unwrap().unwrap();
         assert_eq!(runtime.token, "pairing-secret");
-        assert_eq!(runtime.config.device_id, "desktop-a");
+        assert_eq!(
+            runtime.config.device_id,
+            "desktop-0123456789abcdef0123456789abcdef"
+        );
 
         let mut updated = input("");
         updated.device_name = "Updated".into();
@@ -304,5 +350,52 @@ mod tests {
             store.save(input("")),
             Err(ConfigError::MissingToken)
         ));
+    }
+
+    #[test]
+    fn migrates_legacy_local_urls_to_the_public_bridge() {
+        let mut config = AgentConfig {
+            server_url: "http://127.0.0.1:5912".into(),
+            web_url: "http://127.0.0.1:5912/".into(),
+            device_id: "desktop-a".into(),
+            device_name: "Workstation".into(),
+            auto_start: true,
+        };
+
+        migrate_legacy_local_urls(&mut config);
+
+        assert_eq!(config.server_url, PUBLIC_BRIDGE_URL);
+        assert_eq!(config.web_url, format!("{PUBLIC_BRIDGE_URL}/"));
+    }
+
+    #[test]
+    fn migrates_legacy_device_id_once_and_preserves_its_secret() {
+        let dir = tempfile::tempdir().unwrap();
+        let secrets = Arc::new(MemorySecrets::default());
+        secrets.set("tauri-e2e-v2", "pairing-secret").unwrap();
+        let path = dir.path().join("config.json");
+        fs::write(
+            &path,
+            serde_json::to_vec(&PersistedConfig {
+                version: 1,
+                config: AgentConfig {
+                    server_url: PUBLIC_BRIDGE_URL.into(),
+                    web_url: format!("{PUBLIC_BRIDGE_URL}/"),
+                    device_id: "tauri-e2e-v2".into(),
+                    device_name: "Workstation".into(),
+                    auto_start: true,
+                },
+            })
+            .unwrap(),
+        )
+        .unwrap();
+        let store = ConfigStore::new(path, secrets);
+
+        let first = store.load_runtime().unwrap().unwrap();
+        let second = store.load_runtime().unwrap().unwrap();
+
+        assert!(is_generated_device_id(&first.config.device_id));
+        assert_eq!(first.config.device_id, second.config.device_id);
+        assert_eq!(first.token, "pairing-secret");
     }
 }

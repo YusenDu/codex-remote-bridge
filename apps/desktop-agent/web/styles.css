@@ -40,16 +40,23 @@ button:disabled {
   min-height: 560px;
   overflow: hidden;
   background: #191b1c;
+  box-shadow: inset 0 0 0 1px #34383b;
 }
 
 .titlebar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 50px;
-  padding: 0 18px;
+  height: 44px;
+  padding: 0 0 0 16px;
   border-bottom: 1px solid #2c2f31;
   background: #17191a;
+  user-select: none;
+}
+
+.titlebar-drag-region {
+  flex: 1;
+  align-self: stretch;
 }
 
 .brand {
@@ -62,22 +69,9 @@ button:disabled {
 }
 
 .brand-mark {
-  position: relative;
-  width: 15px;
-  height: 15px;
-  border: 1px solid #5d6367;
-  border-radius: 4px;
-}
-
-.brand-mark::after {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  width: 5px;
-  height: 5px;
-  border-radius: 1px;
-  background: #23c483;
-  content: "";
+  display: block;
+  width: 18px;
+  height: 18px;
 }
 
 .text-button,
@@ -88,9 +82,9 @@ button:disabled {
 }
 
 .text-button {
-  min-width: 42px;
-  height: 30px;
-  padding: 0 6px;
+  min-width: 48px;
+  height: 44px;
+  padding: 0 8px;
   font-size: 12px;
 }
 
@@ -99,8 +93,44 @@ button:disabled {
   color: #ffffff;
 }
 
+.window-controls {
+  display: flex;
+  align-self: stretch;
+  margin-left: 4px;
+}
+
+.window-control {
+  display: grid;
+  width: 46px;
+  height: 44px;
+  place-items: center;
+  border: 0;
+  background: transparent;
+  color: #aeb4b7;
+  font-size: 16px;
+  line-height: 1;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.window-control:hover {
+  background: #303436;
+  color: #ffffff;
+}
+
+.window-control:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid #23c483;
+  outline-offset: -2px;
+}
+
+.window-control-close:hover {
+  background: #c74242;
+  color: #ffffff;
+}
+
 .view {
-  height: calc(100vh - 50px);
+  height: calc(100vh - 44px);
 }
 
 .access-view {

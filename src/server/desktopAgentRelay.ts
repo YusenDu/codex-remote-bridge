@@ -70,6 +70,8 @@ type PendingResponseChunks = {
   chunks: Array<Buffer | undefined>
 }
 
+const DEFAULT_AGENT_REQUEST_TIMEOUT_MS = 45_000
+
 export class DesktopAgentRelay {
   private readonly requestTimeoutMs: number
   private readonly heartbeatTimeoutMs: number
@@ -88,7 +90,7 @@ export class DesktopAgentRelay {
   private disposed = false
 
   constructor(private readonly options: DesktopAgentRelayOptions) {
-    this.requestTimeoutMs = options.requestTimeoutMs ?? 30_000
+    this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_AGENT_REQUEST_TIMEOUT_MS
     this.heartbeatTimeoutMs = options.heartbeatTimeoutMs ?? 45_000
     this.helloTimeoutMs = options.helloTimeoutMs ?? 10_000
     this.maxUnauthenticatedConnections = options.maxUnauthenticatedConnections ?? 64

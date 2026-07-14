@@ -15,7 +15,5 @@ package-lock.json
 .env
 .env.local
 
-package.json
-!apps/desktop-agent/package.json
 .omx/
 .superpowers/

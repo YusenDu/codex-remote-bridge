@@ -92,6 +92,20 @@ export async function dispatchDesktopAgentRpc(
   }
 }
 
+export async function dispatchDesktopAgentLocalOperation(
+  mode: DesktopBridgeMode,
+  operation: string,
+  params: unknown,
+  bridge: DesktopAgentRpcBridge,
+  deviceId?: string,
+): Promise<DesktopCdpRpcDispatch> {
+  if (mode !== 'agent') return { handled: false }
+  return {
+    handled: true,
+    result: await bridge.rpc(`codex-web/local/${operation}`, params ?? null, deviceId),
+  }
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null ? value as Record<string, unknown> : null
 }

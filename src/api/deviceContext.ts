@@ -51,3 +51,12 @@ export function clearActiveDeviceId(storage: DeviceStorage | null = browserStora
     // Clearing the in-memory selection is sufficient when browser storage is blocked.
   }
 }
+
+export function appendActiveDeviceId(
+  query: URLSearchParams,
+  storage: DeviceStorage | null = browserStorage(),
+): URLSearchParams {
+  const deviceId = getActiveDeviceId(storage)
+  if (deviceId) query.set('deviceId', deviceId)
+  return query
+}
