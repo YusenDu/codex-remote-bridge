@@ -311,38 +311,6 @@
                     </div>
                   </div>
                 </div>
-                <div v-else-if="isPlanMessage(message)" class="plan-card" :data-streaming="message.messageType === 'plan.live'">
-                  <div class="plan-card-header">
-                    <p class="plan-card-title">Plan</p>
-                    <span v-if="message.messageType === 'plan.live'" class="plan-card-badge">Updating</span>
-                  </div>
-                  <div
-                    v-if="readPlanExplanation(message)"
-                    class="plan-card-explanation plan-card-markdown"
-                    v-html="renderMarkdownBlocksAsHtml(readPlanExplanation(message))"
-                  />
-                  <ol v-if="readPlanSteps(message).length > 0" class="plan-step-list">
-                    <li
-                      v-for="(step, stepIndex) in readPlanSteps(message)"
-                      :key="`${message.id}:plan-step:${stepIndex}`"
-                      class="plan-step-item"
-                      :data-status="step.status"
-                    >
-                      <span class="plan-step-status" :data-status="step.status">{{ planStepStatusIcon(step.status) }}</span>
-                      <div class="plan-step-text plan-card-markdown" v-html="renderMarkdownBlocksAsHtml(step.step)" />
-                    </li>
-                  </ol>
-                  <div v-else class="plan-card-markdown" v-html="renderMarkdownBlocksAsHtml(message.text)" />
-                  <div v-if="showImplementPlanButton(message)" class="plan-card-actions">
-                    <button
-                      type="button"
-                      class="plan-card-implement-button"
-                      @click="implementPlan(message)"
-                    >
-                      Implement plan
-                    </button>
-                  </div>
-                </div>
                 <div
                   v-else
                   class="message-text-flow"
@@ -918,11 +886,12 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import type { UiFileChange, UiLiveOverlay, UiMessage, UiPlanStep, UiServerRequest } from '../../types/codex'
+import type { UiFileChange, UiLiveOverlay, UiMessage, UiServerRequest } from '../../types/codex'
 import { updateThreadFileChanges } from '../../api/codexGateway'
 import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics'
 import { useMobile } from '../../composables/useMobile'
 import { copyTextToClipboard, copyTextWithSelectionFallback } from '../../utils/clipboard'
+import { isPlanMessage, withoutPlanMessages } from '../../utils/planProgress'
 
 import IconTablerArrowBackUp from '../icons/IconTablerArrowBackUp.vue'
 import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
@@ -967,88 +936,12 @@ function prepareTurnErrorFeedback(event: MouseEvent, message: string): void {
   }
 }
 
-function parsePlanFromMessageText(text: string): { explanation: string; steps: UiPlanStep[] } | null {
-  const normalized = text.replace(/\r\n/g, '\n').trim()
-  if (!normalized) return null
-
-  const steps: UiPlanStep[] = []
-  const explanationLines: string[] = []
-
-  for (const line of normalized.split('\n')) {
-    const trimmed = line.trim()
-    if (!trimmed) {
-      if (steps.length === 0) explanationLines.push('')
-      continue
-    }
-
-    const match = trimmed.match(/^[-*]\s+\[([ xX~>|-])\]\s+(.+)$/)
-    if (match) {
-      const marker = (match[1] ?? ' ').toLowerCase()
-      let status: UiPlanStep['status'] = 'pending'
-      if (marker === 'x') status = 'completed'
-      if (marker === '~' || marker === '>' || marker === '-') status = 'inProgress'
-      steps.push({
-        step: match[2]?.trim() ?? '',
-        status,
-      })
-      continue
-    }
-
-    explanationLines.push(trimmed)
-  }
-
-  if (steps.length === 0) return null
-  return {
-    explanation: explanationLines.join('\n').trim(),
-    steps: steps.filter((step) => step.step.length > 0),
-  }
-}
-
-function readPlanData(message: UiMessage): { explanation: string; steps: UiPlanStep[] } | null {
-  if (message.plan && message.plan.steps.length > 0) {
-    return {
-      explanation: message.plan.explanation?.trim() ?? '',
-      steps: message.plan.steps,
-    }
-  }
-  return parsePlanFromMessageText(message.text)
-}
-
 function isCommandMessage(message: UiMessage): boolean {
   return message.messageType === 'commandExecution' && !!message.commandExecution
 }
 
-function isPlanMessage(message: UiMessage): boolean {
-  return message.messageType === 'plan' || message.messageType === 'plan.live'
-}
-
 function isTurnErrorMessage(message: UiMessage): boolean {
   return message.messageType === 'turnError'
-}
-
-function buildPlanMessageText(explanation: string, steps: UiPlanStep[]): string {
-  const lines: string[] = []
-  if (explanation.trim()) {
-    lines.push(explanation.trim())
-  }
-  for (const step of steps) {
-    const marker = step.status === 'completed' ? 'x' : step.status === 'inProgress' ? '~' : ' '
-    lines.push(`- [${marker}] ${step.step}`)
-  }
-  return lines.join('\n').trim()
-}
-
-function showImplementPlanButton(message: UiMessage): boolean {
-  return isPlanMessage(message)
-    && message.messageType !== 'plan.live'
-    && message.role === 'assistant'
-    && Boolean(message.turnId)
-}
-
-function implementPlan(message: UiMessage): void {
-  const turnId = message.turnId?.trim() ?? ''
-  if (!turnId) return
-  emit('implementPlan', { turnId })
 }
 
 function isFileChangeMessage(message: UiMessage): boolean {
@@ -1061,6 +954,7 @@ function isFileChangeMessage(message: UiMessage): boolean {
 function isCopyableAssistantMessage(message: UiMessage): boolean {
   return message.role === 'assistant'
     && !isCommandMessage(message)
+    && !isPlanMessage(message)
     && message.messageType !== 'worked'
     && !(message.messageType ?? '').endsWith('.live')
 }
@@ -1118,25 +1012,6 @@ const hiddenGroupedCommandIds = computed(() => {
   }
   return next
 })
-
-function readPlanExplanation(message: UiMessage): string {
-  return readPlanData(message)?.explanation ?? ''
-}
-
-function readPlanSteps(message: UiMessage): UiPlanStep[] {
-  return readPlanData(message)?.steps ?? []
-}
-
-function planStepStatusIcon(status: UiPlanStep['status']): string {
-  switch (status) {
-    case 'completed':
-      return '✓'
-    case 'inProgress':
-      return '•'
-    default:
-      return '○'
-  }
-}
 
 function isCommandAutoExpanded(message: UiMessage): boolean {
   return !hasLiveAssistantText.value && message.id === activeCommandMessageId.value
@@ -1321,7 +1196,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   forkThread: [payload: { threadId: string; turnIndex: number }]
   rollback: [payload: { turnId: string }]
-  implementPlan: [payload: { turnId: string }]
   respondServerRequest: [payload: { id: number; result?: unknown; error?: { code?: number; message: string } }]
 }>()
 
@@ -1433,7 +1307,7 @@ const LOAD_MORE_SCROLL_THRESHOLD_PX = 200
 const renderWindowStart = ref(0)
 const isLoadingMore = ref(false)
 
-const visibleMessages = computed(() => props.messages.slice(renderWindowStart.value))
+const visibleMessages = computed(() => withoutPlanMessages(props.messages.slice(renderWindowStart.value)))
 const hasMoreAbove = computed(() => renderWindowStart.value > 0 || props.hasMorePersistedAbove === true)
 
 const showJumpToLatestButton = computed(
@@ -1744,39 +1618,9 @@ function headingClass(level: number): string {
   }
 }
 
-function planStepCopyMarker(status: UiPlanStep['status']): string {
-  switch (status) {
-    case 'completed':
-      return '[x]'
-    case 'inProgress':
-      return '[~]'
-    default:
-      return '[ ]'
-  }
-}
-
-function buildPlanCopyText(message: UiMessage): string {
-  const planData = readPlanData(message)
-  if (!planData) return ''
-
-  const sections: string[] = []
-  if (planData.explanation?.trim()) {
-    sections.push(planData.explanation.trim())
-  }
-
-  if (planData.steps.length > 0) {
-    sections.push(planData.steps.map((step) => `- ${planStepCopyMarker(step.status)} ${step.step}`.trim()).join('\n'))
-  }
-
-  return sections.join('\n\n').trim()
-}
-
 function buildCopyableMessageContent(message: UiMessage): string {
   const sections: string[] = []
-  const rawTextContent = message.text.trim() || buildPlanCopyText(message)
-  const textContent = isPlanMessage(message) && rawTextContent
-    ? `Plan\n${rawTextContent}`
-    : rawTextContent
+  const textContent = message.text.trim()
   if (textContent) {
     sections.push(textContent)
   }
@@ -4771,176 +4615,6 @@ onBeforeUnmount(() => {
 
 .message-text-flow {
   @apply flex flex-col gap-2;
-}
-
-.plan-card {
-  @apply flex max-w-[min(var(--chat-card-max,76ch),100%)] flex-col gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-slate-900;
-}
-
-.plan-card-header {
-  @apply flex items-center justify-between gap-3;
-}
-
-.plan-card-title {
-  @apply m-0 text-sm font-semibold leading-5 text-sky-900;
-}
-
-.plan-card-badge {
-  @apply inline-flex items-center rounded-full bg-sky-200 px-2 py-0.5 text-[11px] font-medium leading-4 text-sky-900;
-}
-
-.plan-card-explanation {
-  @apply text-slate-700;
-}
-
-.plan-card-markdown {
-  @apply flex flex-col gap-2;
-}
-
-.plan-card-markdown :deep(.message-text),
-.plan-card-markdown :deep(.message-heading),
-.plan-card-markdown :deep(.message-blockquote),
-.plan-card-markdown :deep(.message-list),
-.plan-card-markdown :deep(.message-table-wrap),
-.plan-card-markdown :deep(.message-code-block),
-.plan-card-markdown :deep(.message-divider) {
-  @apply m-0;
-}
-
-.plan-card-markdown :deep(.message-text) {
-  @apply text-sm leading-relaxed whitespace-pre-wrap text-slate-800;
-}
-
-.plan-card-markdown :deep(.message-heading) {
-  @apply text-slate-900 tracking-tight;
-}
-
-.plan-card-markdown :deep(.message-heading-h1) {
-  @apply text-2xl font-semibold leading-tight;
-}
-
-.plan-card-markdown :deep(.message-heading-h2) {
-  @apply text-xl font-semibold leading-tight;
-}
-
-.plan-card-markdown :deep(.message-heading-h3) {
-  @apply text-lg font-semibold leading-snug;
-}
-
-.plan-card-markdown :deep(.message-heading-h4) {
-  @apply text-base font-semibold leading-snug;
-}
-
-.plan-card-markdown :deep(.message-heading-h5) {
-  @apply text-sm font-semibold leading-snug uppercase tracking-[0.02em];
-}
-
-.plan-card-markdown :deep(.message-heading-h6) {
-  @apply text-xs font-semibold leading-snug uppercase tracking-[0.04em] text-slate-600;
-}
-
-.plan-card-markdown :deep(.message-blockquote) {
-  @apply border-l-4 border-slate-300 pl-4 py-1 text-sm leading-relaxed whitespace-pre-wrap text-slate-700 bg-slate-50/70 rounded-r-lg;
-}
-
-.plan-card-markdown :deep(.message-list) {
-  @apply pl-5 text-sm leading-relaxed text-slate-800 flex flex-col gap-1.5;
-}
-
-.plan-card-markdown :deep(.message-list-unordered) {
-  @apply list-disc;
-}
-
-.plan-card-markdown :deep(.message-list-ordered) {
-  @apply list-decimal;
-}
-
-.plan-card-markdown :deep(.message-list-item) {
-  @apply pl-1;
-}
-
-.plan-card-markdown :deep(.message-list-item-text) {
-  @apply whitespace-pre-wrap;
-}
-
-.plan-card-markdown :deep(.message-list-item-paragraph + .message-list-item-paragraph) {
-  @apply mt-2;
-}
-
-.plan-card-markdown :deep(.message-task-list) {
-  @apply list-none pl-0;
-}
-
-.plan-card-markdown :deep(.message-task-item) {
-  @apply flex items-start gap-2;
-}
-
-.plan-card-markdown :deep(.message-task-checkbox) {
-  @apply mt-0.5 text-sm leading-none text-slate-500 select-none;
-}
-
-.plan-card-markdown :deep(.message-code-block) {
-  @apply overflow-hidden rounded-xl border border-slate-200 bg-slate-950/95 text-slate-100;
-}
-
-.plan-card-markdown :deep(.message-code-language) {
-  @apply border-b border-slate-800 bg-slate-900/90 px-3 py-2 text-[11px] font-medium uppercase tracking-[0.08em] text-slate-400;
-}
-
-.plan-card-markdown :deep(.message-code-pre) {
-  @apply m-0 overflow-x-auto px-3 py-3 text-[13px] leading-6;
-}
-
-.plan-card-markdown :deep(.message-inline-code) {
-  @apply bg-transparent p-0 font-sans text-[1em] font-semibold text-inherit;
-}
-
-.plan-card-markdown :deep(.message-file-link) {
-  @apply text-sky-700 underline decoration-sky-300 underline-offset-2;
-}
-
-.plan-card-markdown :deep(.message-table) {
-  @apply bg-white/90;
-}
-
-.plan-step-list {
-  @apply m-0 flex list-none flex-col gap-2 p-0;
-}
-
-.plan-step-item {
-  @apply flex items-start gap-2 rounded-xl border border-white/70 bg-white/80 px-3 py-2 text-sm leading-relaxed text-slate-800;
-}
-
-.plan-step-item[data-status='completed'] {
-  @apply border-emerald-200 bg-emerald-50/80;
-}
-
-.plan-step-item[data-status='inProgress'] {
-  @apply border-amber-200 bg-amber-50/80;
-}
-
-.plan-step-status {
-  @apply mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-slate-200 text-xs font-semibold text-slate-700;
-}
-
-.plan-step-status[data-status='completed'] {
-  @apply bg-emerald-200 text-emerald-900;
-}
-
-.plan-step-status[data-status='inProgress'] {
-  @apply bg-amber-200 text-amber-900;
-}
-
-.plan-step-text {
-  @apply min-w-0 flex-1;
-}
-
-.plan-card-actions {
-  @apply mt-3 flex justify-end;
-}
-
-.plan-card-implement-button {
-  @apply inline-flex items-center rounded-full border border-slate-300 bg-white px-3 py-1.5 text-xs font-medium text-slate-800 transition hover:border-slate-400 hover:bg-slate-50;
 }
 
 .message-text {

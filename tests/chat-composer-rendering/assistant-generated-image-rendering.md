@@ -5,12 +5,15 @@ Codex app-server generated image items render as assistant image previews.
 
 #### Prerequisites/Setup
 1. Dev server running (`pnpm run dev`)
-2. A Codex thread that has completed an image generation turn, or a test app-server payload containing either `type: "imageGeneration"` with a base64 `result` or `type: "imageView"` with an absolute image `path`
+2. A Codex thread that has completed an image generation turn, or a test app-server payload containing `type: "imageGeneration"` with a base64 `result`
 
 #### Steps
 1. Open the thread in CodexUI
 2. Locate the completed image generation turn
 3. Inspect the assistant response area where the generated image should appear
+
+Internal Codex `imageView` tool screenshots must not appear in the Web conversation. User-uploaded
+message images and explicit `imageGeneration` results remain visible.
 4. Click the generated image preview
 
 #### Expected Results

@@ -569,7 +569,9 @@ add(manager.addTurnCompletedListener(event=>emit('turnCompleted',event)));
 add(manager.addStreamRoleStateCallback((threadId,state)=>emit('streamRole',{{threadId,state}})));
 if(typeof manager.addConversationStateCallback==='function')add(manager.addConversationStateCallback((threadId,state)=>emit('conversationState',{{threadId,active:typeof manager.isConversationStreaming==='function'?manager.isConversationStreaming(threadId):null,runtimeStatus:state&&state.threadRuntimeStatus?state.threadRuntimeStatus:null,updatedAt:state&&typeof state.updatedAt==='number'?state.updatedAt:null}})));
   const isMissingRollout=e=>{{let current=e;for(let depth=0;current&&depth<4;depth++){{const text=current instanceof Error?current.message:String(current);if(text.toLowerCase().includes('no rollout found for thread id'))return true;current=current&&typeof current==='object'?current.cause:null;}}return false;}};
-  const adapter={{protocol,async rpc(method,params){{if(typeof method!=='string'||!/^[A-Za-z0-9._\/-]{{1,160}}$/.test(method))throw new Error('Desktop RPC method is invalid.');if(method==='turn/start'){{const threadId=params&&typeof params.threadId==='string'?params.threadId.trim():'';if(!threadId)throw new Error('turn/start requires threadId.');try{{await manager.sendRequest('thread/resume',{{threadId}},{{priority:'critical'}});}}catch(error){{if(!isMissingRollout(error))throw error;}}}}return manager.sendRequest(method,params??null,{{priority:'critical'}});}},dispose(){{if(disposed)return;disposed=true;for(const fn of disposers.splice(0))try{{fn();}}catch{{}}if(globalThis[globalName]===adapter)delete globalThis[globalName];}}}};
+  const threadMethodsWithTurns=new Set(['thread/read','thread/resume','thread/fork','thread/rollback']);
+  const trimThreadResult=(method,result)=>{{if(!threadMethodsWithTurns.has(method)||!result||typeof result!=='object')return result;const thread=result.thread,turns=thread&&Array.isArray(thread.turns)?thread.turns:null;if(!turns||turns.length<=10)return result;const start=turns.length-10,previousStart=Number.isFinite(result.threadTurnStartIndex)?Math.max(0,Math.floor(result.threadTurnStartIndex)):0;return{{...result,threadTurnStartIndex:previousStart+start,thread:{{...thread,turns:turns.slice(start)}}}};}};
+  const adapter={{protocol,async rpc(method,params){{if(typeof method!=='string'||!/^[A-Za-z0-9._\/-]{{1,160}}$/.test(method))throw new Error('Desktop RPC method is invalid.');if(method==='turn/start'){{const threadId=params&&typeof params.threadId==='string'?params.threadId.trim():'';if(!threadId)throw new Error('turn/start requires threadId.');try{{await manager.sendRequest('thread/resume',{{threadId}},{{priority:'critical'}});}}catch(error){{if(!isMissingRollout(error))throw error;}}}}const result=await manager.sendRequest(method,params??null,{{priority:'critical'}});return trimThreadResult(method,result);}},dispose(){{if(disposed)return;disposed=true;for(const fn of disposers.splice(0))try{{fn();}}catch{{}}if(globalThis[globalName]===adapter)delete globalThis[globalName];}}}};
 globalThis[globalName]=adapter;return{{protocol,hostId:manager.getHostId(),capabilities:['rpc','turn/start','turn/interrupt','events'],rendererUrl:globalThis.location&&globalThis.location.href?globalThis.location.href:'app://-/index.html'}};
 }})()"#,
         protocol = ADAPTER_PROTOCOL,
@@ -623,6 +625,14 @@ mod tests {
         }
         assert!(source.contains("manager.sendRequest"));
         assert!(source.contains("no rollout found for thread id"));
+    }
+
+    #[test]
+    fn bootstrap_trims_thread_snapshots_before_relaying_them() {
+        let source = renderer_bootstrap_source("bridgeBinding");
+        assert!(source.contains("trimThreadResult"));
+        assert!(source.contains("threadTurnStartIndex"));
+        assert!(source.contains("turns.slice(start)"));
     }
 
     #[test]

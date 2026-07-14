@@ -4,6 +4,7 @@ mod config;
 mod local_ops;
 mod mobile_access;
 mod protocol;
+mod update;
 
 use agent::{AgentController, AgentStatus};
 use cdp::{BridgeStatus, DesktopBridge};
@@ -20,6 +21,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt as AutostartExt;
 use tauri_plugin_opener::OpenerExt;
+use update::UpdateStatusView;
 
 struct AppState {
     store: ConfigStore,
@@ -157,6 +159,19 @@ fn hide_settings(app: AppHandle) -> Result<(), String> {
 #[tauri::command]
 fn get_app_version() -> &'static str {
     env!("CARGO_PKG_VERSION")
+}
+
+#[tauri::command]
+async fn check_for_update() -> Result<UpdateStatusView, String> {
+    update::check_for_update(env!("CARGO_PKG_VERSION")).await
+}
+
+#[tauri::command]
+fn open_update_release(app: AppHandle, release_url: String) -> Result<(), String> {
+    let release_url = update::validate_release_url(&release_url)?;
+    app.opener()
+        .open_url(release_url.as_str(), None::<&str>)
+        .map_err(|error| error.to_string())
 }
 
 async fn restart_agent(state: &AppState) -> Result<(), String> {
@@ -386,6 +401,21 @@ fn connection_label(status: &AgentStatus) -> String {
     }
 }
 
+#[cfg(target_os = "windows")]
+fn configure_windows_app_user_model_id() {
+    use windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID;
+
+    const APP_USER_MODEL_ID: &str = "ai.openai.codex.bridge.agent";
+    let app_id = APP_USER_MODEL_ID
+        .encode_utf16()
+        .chain(std::iter::once(0))
+        .collect::<Vec<_>>();
+    let result = unsafe { SetCurrentProcessExplicitAppUserModelID(app_id.as_ptr()) };
+    if result < 0 {
+        tracing::warn!(result, "failed to set the Windows AppUserModelID");
+    }
+}
+
 fn build_mobile_access_view(
     config: &AgentConfig,
     configured: bool,
@@ -416,6 +446,9 @@ pub fn run() {
         .with_ansi(false)
         .init();
 
+    #[cfg(target_os = "windows")]
+    configure_windows_app_user_model_id();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_settings(app);
@@ -427,6 +460,8 @@ pub fn run() {
             get_status,
             get_mobile_access,
             get_app_version,
+            check_for_update,
+            open_update_release,
             open_mobile_access,
             save_config,
             hide_settings
@@ -553,8 +588,32 @@ mod tests {
         assert!(html.contains("id=\"app-version\""));
         assert!(script.contains("get_app_version"));
         assert!(source.contains("window.set_icon(icon.clone())"));
+        assert!(source.matches("SetCurrentProcessExplicitAppUserModelID").count() >= 2);
+        assert!(source.matches("ai.openai.codex.bridge.agent").count() >= 2);
         assert!(config.contains("\"installerIcon\": \"icons/icon.ico\""));
         assert!(config.contains("\"uninstallerIcon\": \"icons/icon.ico\""));
+    }
+
+    #[test]
+    fn desktop_update_and_elevated_installer_contract_is_visible() {
+        let html = include_str!("../../web/index.html");
+        let script = include_str!("../../web/app.js");
+        let source = include_str!("lib.rs");
+        let config = include_str!("../tauri.conf.json");
+        let hooks = include_str!("../windows/hooks.nsh");
+
+        for id in ["update-status", "check-update", "open-update"] {
+            assert!(html.contains(&format!("id=\"{id}\"")));
+        }
+        assert!(script.contains("check_for_update"));
+        assert!(script.contains("open_update_release"));
+        assert!(source.contains("check_for_update"));
+        assert!(source.contains("open_update_release"));
+        assert!(config.contains("\"installMode\": \"perMachine\""));
+        assert!(config.contains("\"installerHooks\": \"./windows/hooks.nsh\""));
+        assert!(hooks.contains("NSIS_HOOK_POSTINSTALL"));
+        assert!(hooks.contains("-ClearIconCache"));
+        assert!(hooks.contains("-show"));
     }
 
     #[test]

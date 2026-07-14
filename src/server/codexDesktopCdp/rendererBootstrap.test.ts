@@ -11,14 +11,17 @@ function createRendererFixture() {
   const turnCallbacks: Array<(event: unknown) => void> = []
   const streamCallbacks: Array<(threadId: string, state: unknown) => void> = []
   const disposeSpies = [vi.fn(), vi.fn(), vi.fn()]
-  const manager = {
-    getHostId: () => 'local',
-    getConversation: () => ({ id: 'thread-1' }),
-    sendRequest: vi.fn(async (method: string, params: unknown, options: unknown) => {
+  const sendRequest = vi.fn<(method: string, params: unknown, options: unknown) => Promise<unknown>>(
+    async (method: string, params: unknown, options: unknown) => {
       sent.push({ method, params, options })
       if (method === 'turn/start') return { turn: { id: 'turn-1', status: 'inProgress' } }
       return {}
-    }),
+    },
+  )
+  const manager = {
+    getHostId: () => 'local',
+    getConversation: () => ({ id: 'thread-1' }),
+    sendRequest,
     addNotificationCallback: vi.fn((_methods: string[], callback: (event: unknown) => void) => {
       notificationCallbacks.push(callback)
       return disposeSpies[0]
@@ -126,6 +129,34 @@ describe('Codex Desktop renderer bootstrap', () => {
 
     await vm.runInNewContext(source, fixture.context)
     expect(fixture.disposeSpies.every((dispose) => dispose.mock.calls.length === 1)).toBe(true)
+  })
+
+  it('trims large thread snapshots before they leave the Desktop renderer', async () => {
+    const fixture = createRendererFixture()
+    const turns = Array.from({ length: 25 }, (_, index) => ({ id: `turn-${index}` }))
+    fixture.manager.sendRequest.mockImplementation(async (method: string) => {
+      if (method === 'thread/resume') {
+        return { requestId: 'resume-1', thread: { id: 'thread-large', turns } }
+      }
+      return { data: [{ id: 'thread-large' }] }
+    })
+    await vm.runInNewContext(createRendererBootstrapSource('bridgeBinding'), fixture.context)
+    const adapter = fixture.context[CODEX_DESKTOP_ADAPTER_GLOBAL] as {
+      rpc: (method: string, params: unknown) => Promise<unknown>
+    }
+
+    const resumed = JSON.parse(JSON.stringify(await adapter.rpc('thread/resume', { threadId: 'thread-large' })))
+    const listed = JSON.parse(JSON.stringify(await adapter.rpc('thread/list', { limit: 50 })))
+
+    expect(resumed).toEqual({
+      requestId: 'resume-1',
+      threadTurnStartIndex: 15,
+      thread: {
+        id: 'thread-large',
+        turns: turns.slice(15),
+      },
+    })
+    expect(listed).toEqual({ data: [{ id: 'thread-large' }] })
   })
 
   it('fails closed on the wrong host and contains no global input automation', async () => {

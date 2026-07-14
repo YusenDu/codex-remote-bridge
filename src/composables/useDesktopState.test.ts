@@ -576,7 +576,7 @@ describe('startup request deduplication', () => {
     }
   })
 
-  it('bypasses recent thread-list reuse for event-driven thread refreshes', async () => {
+  it('updates a thread title without refreshing the thread list', async () => {
     installTestWindow()
     vi.mocked(window.setTimeout).mockImplementation(((callback: TimerHandler) => {
       if (typeof callback === 'function') {
@@ -611,10 +611,131 @@ describe('startup request deduplication', () => {
       await Promise.resolve()
       await Promise.resolve()
 
-      expect(gatewayMocks.getThreadGroupsPage.mock.calls.length).toBeGreaterThan(callsBeforeNotification)
+      expect(gatewayMocks.getThreadGroupsPage.mock.calls.length).toBe(callsBeforeNotification)
+      expect(state.projectGroups.value[0]?.threads[0]?.title).toBe('Updated title')
     } finally {
       nowSpy.mockRestore()
     }
+  })
+
+  it('defers an inactive dirty thread read until that thread is selected', async () => {
+    installTestWindow()
+    vi.mocked(window.setTimeout).mockImplementation(((callback: TimerHandler) => {
+      if (typeof callback === 'function') {
+        void Promise.resolve().then(() => callback())
+      }
+      return 1
+    }) as typeof window.setTimeout)
+    let notificationHandler: ((notification: { method: string; params?: unknown }) => void) | undefined
+    gatewayMocks.subscribeCodexNotifications.mockImplementation((handler) => {
+      notificationHandler = handler as typeof notificationHandler
+      return vi.fn()
+    })
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [{
+        projectName: 'Project',
+        threads: [thread('thread-a', '/tmp/project'), thread('thread-b', '/tmp/project')],
+      }],
+      nextCursor: null,
+    })
+    gatewayMocks.resumeThread.mockResolvedValue(null)
+    gatewayMocks.getThreadDetail.mockResolvedValue({
+      model: 'gpt-5.5',
+      modelProvider: 'openai',
+      messages: [],
+      inProgress: false,
+      activeTurnId: '',
+      hasMoreOlder: false,
+      turnIndexByTurnId: {},
+    })
+    gatewayMocks.getCurrentModelConfig.mockResolvedValue({
+      model: 'gpt-5.5',
+      providerId: 'openai',
+      reasoningEffort: 'medium',
+      speedMode: 'standard',
+    })
+    gatewayMocks.getAvailableModelIds.mockResolvedValue(['gpt-5.5'])
+    gatewayMocks.getSkillsList.mockResolvedValue([])
+
+    const state = useDesktopState()
+    await state.refreshAll({ includeSelectedThreadMessages: false })
+    state.primeSelectedThread('thread-b')
+    await state.loadMessages('thread-b')
+    state.primeSelectedThread('thread-a')
+    await state.loadMessages('thread-a')
+    const detailCallsBeforeEvent = gatewayMocks.getThreadDetail.mock.calls.length
+    const listCallsBeforeEvent = gatewayMocks.getThreadGroupsPage.mock.calls.length
+    state.startPolling()
+
+    notificationHandler!({
+      method: 'bridge/thread-session-updated',
+      params: {
+        threadId: 'thread-b',
+        path: 'C:\\Users\\tester\\.codex\\sessions\\thread-b.jsonl',
+        mtimeMs: 1783560001000,
+        size: 1234,
+      },
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(gatewayMocks.getThreadDetail).toHaveBeenCalledTimes(detailCallsBeforeEvent)
+    expect(gatewayMocks.getThreadGroupsPage).toHaveBeenCalledTimes(listCallsBeforeEvent)
+
+    await state.selectThread('thread-b')
+
+    expect(gatewayMocks.getThreadDetail).toHaveBeenCalledTimes(detailCallsBeforeEvent + 1)
+  })
+
+  it('reconciles only the active thread after turn completion', async () => {
+    installTestWindow()
+    vi.mocked(window.setTimeout).mockImplementation(((callback: TimerHandler) => {
+      if (typeof callback === 'function') {
+        void Promise.resolve().then(() => callback())
+      }
+      return 1
+    }) as typeof window.setTimeout)
+    let notificationHandler: ((notification: { method: string; params?: unknown }) => void) | undefined
+    gatewayMocks.subscribeCodexNotifications.mockImplementation((handler) => {
+      notificationHandler = handler as typeof notificationHandler
+      return vi.fn()
+    })
+    gatewayMocks.getThreadGroupsPage.mockResolvedValue({
+      groups: [{ projectName: 'Project', threads: [thread('thread-active', '/tmp/project')] }],
+      nextCursor: null,
+    })
+    gatewayMocks.resumeThread.mockResolvedValue(null)
+    gatewayMocks.getThreadDetail.mockResolvedValue({
+      model: 'gpt-5.5',
+      modelProvider: 'openai',
+      messages: [],
+      inProgress: false,
+      activeTurnId: '',
+      hasMoreOlder: false,
+      turnIndexByTurnId: {},
+    })
+
+    const state = useDesktopState()
+    await state.refreshAll({ includeSelectedThreadMessages: false })
+    state.primeSelectedThread('thread-active')
+    await state.loadMessages('thread-active')
+    const detailCallsBeforeEvent = gatewayMocks.getThreadDetail.mock.calls.length
+    const listCallsBeforeEvent = gatewayMocks.getThreadGroupsPage.mock.calls.length
+    state.startPolling()
+
+    notificationHandler!({
+      method: 'turn/completed',
+      params: {
+        threadId: 'thread-active',
+        turn: { id: 'turn-1', status: 'completed' },
+      },
+    })
+    await Promise.resolve()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(gatewayMocks.getThreadDetail).toHaveBeenCalledTimes(detailCallsBeforeEvent + 1)
+    expect(gatewayMocks.getThreadGroupsPage).toHaveBeenCalledTimes(listCallsBeforeEvent)
   })
 })
 
@@ -741,6 +862,38 @@ describe('live error overlay', () => {
 })
 
 describe('realtime bridge sync', () => {
+  it('ignores realtime Codex screenshots but keeps explicit image generations', () => {
+    installTestWindow()
+    let notificationHandler: (notification: { method: string; params?: unknown }) => void = () => {}
+    gatewayMocks.subscribeCodexNotifications.mockImplementation((handler) => {
+      notificationHandler = handler
+      return vi.fn()
+    })
+    gatewayMocks.getPendingServerRequests.mockResolvedValue([])
+
+    const state = useDesktopState()
+    state.primeSelectedThread('thread-images')
+    state.startPolling()
+
+    notificationHandler({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-images',
+        item: { id: 'tool-screenshot', type: 'imageView', path: 'K:\\diagnostics\\capture.png' },
+      },
+    })
+    notificationHandler({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-images',
+        item: { id: 'generated-image', type: 'imageGeneration', result: 'aGVsbG8=' },
+      },
+    })
+
+    expect(state.messages.value.map((message) => message.id)).toEqual(['generated-image'])
+    expect(state.messages.value[0]?.images).toEqual(['data:image/png;base64,aGVsbG8='])
+  })
+
   it('shows a selected-thread user message before Desktop turn/start resolves', async () => {
     installTestWindow()
     gatewayMocks.getPendingServerRequests.mockResolvedValue([])

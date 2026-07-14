@@ -439,17 +439,7 @@ function toUiMessages(item: ThreadItem): UiMessage[] {
   }
 
   if (item.type === 'imageView') {
-    const path = typeof item.path === 'string' ? item.path.trim() : ''
-    if (!path) return []
-    return [
-      {
-        id: item.id,
-        role: 'assistant',
-        text: '',
-        images: [toLocalImageUrl(path)],
-        messageType: 'imageView',
-      },
-    ]
+    return []
   }
 
   {

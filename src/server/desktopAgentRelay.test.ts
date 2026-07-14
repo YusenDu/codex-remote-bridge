@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import { decodeAgentMessage, encodeAgentMessage } from '../desktop-agent/protocol'
 import {
+  DEFAULT_AGENT_REQUEST_TIMEOUT_MS,
   DesktopAgentRelay,
   createDesktopAgentTokenAuthenticator,
   type AgentServerSocket,
@@ -38,6 +39,10 @@ async function attachAuthenticatedAgent(relay: DesktopAgentRelay, socket: FakeSo
 }
 
 describe('DesktopAgentRelay', () => {
+  it('allows large Desktop snapshots enough time to cross the public relay', () => {
+    expect(DEFAULT_AGENT_REQUEST_TIMEOUT_MS).toBe(90_000)
+  })
+
   it('expires unauthenticated sockets that do not send hello in time', async () => {
     vi.useFakeTimers()
     try {

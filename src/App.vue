@@ -987,7 +987,6 @@
                     :load-earlier-messages="loadOlderMessages"
                     @fork-thread="onForkThreadFromMessage"
                     @rollback="onRollback"
-                    @implement-plan="onImplementPlan"
                     @respond-server-request="onRespondServerRequest" />
                 </div>
 
@@ -1019,33 +1018,35 @@
                     :has-queue-above="selectedThreadQueuedMessages.length > 0"
                     @respond-server-request="onRespondServerRequest"
                   />
-                  <ThreadComposer
-                    v-else
-                    ref="threadComposerRef"
-                    :active-thread-id="composerThreadContextId"
-                    :cwd="composerCwd"
-                    :collaboration-modes="availableCollaborationModes"
-                    :selected-collaboration-mode="selectedCollaborationMode"
-                    :models="availableModelIds"
-                    :selected-model="composerSelectedModelId"
-                    :selected-reasoning-effort="selectedReasoningEffort"
-                    :selected-speed-mode="selectedSpeedMode"
-                    :is-updating-speed-mode="isUpdatingSpeedMode"
-                    :skills="installedSkills"
-                    :thread-token-usage="selectedThreadTokenUsage"
-                    :codex-quota="codexQuota"
-                    :is-turn-in-progress="isSelectedThreadInProgress"
-                    :is-stop-pending="isSelectedThreadInterruptPending"
-                    :is-interrupting-turn="isInterruptingTurn"
-                    :has-queue-above="selectedThreadQueuedMessages.length > 0"
-                    :send-with-enter="sendWithEnter" :in-progress-submit-mode="inProgressSendMode"
-                    :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
-                    :dictation-language="dictationLanguage"
-                    @update:selected-collaboration-mode="onSelectCollaborationMode"
-                    @submit="onSubmitThreadMessage" @update:selected-model="onSelectModel"
-                    @update:selected-reasoning-effort="onSelectReasoningEffort"
-                    @update:selected-speed-mode="onSelectSpeedMode"
-                    @interrupt="onInterruptTurn" />
+                  <template v-else>
+                    <PlanProgressPopover :progress="selectedPlanProgress" />
+                    <ThreadComposer
+                      ref="threadComposerRef"
+                      :active-thread-id="composerThreadContextId"
+                      :cwd="composerCwd"
+                      :collaboration-modes="availableCollaborationModes"
+                      :selected-collaboration-mode="selectedCollaborationMode"
+                      :models="availableModelIds"
+                      :selected-model="composerSelectedModelId"
+                      :selected-reasoning-effort="selectedReasoningEffort"
+                      :selected-speed-mode="selectedSpeedMode"
+                      :is-updating-speed-mode="isUpdatingSpeedMode"
+                      :skills="installedSkills"
+                      :thread-token-usage="selectedThreadTokenUsage"
+                      :codex-quota="codexQuota"
+                      :is-turn-in-progress="isSelectedThreadInProgress"
+                      :is-stop-pending="isSelectedThreadInterruptPending"
+                      :is-interrupting-turn="isInterruptingTurn"
+                      :has-queue-above="selectedThreadQueuedMessages.length > 0"
+                      :send-with-enter="sendWithEnter" :in-progress-submit-mode="inProgressSendMode"
+                      :dictation-click-to-toggle="dictationClickToToggle" :dictation-auto-send="dictationAutoSend"
+                      :dictation-language="dictationLanguage"
+                      @update:selected-collaboration-mode="onSelectCollaborationMode"
+                      @submit="onSubmitThreadMessage" @update:selected-model="onSelectModel"
+                      @update:selected-reasoning-effort="onSelectReasoningEffort"
+                      @update:selected-speed-mode="onSelectSpeedMode"
+                      @interrupt="onInterruptTurn" />
+                  </template>
                 </div>
               </template>
             </div>
@@ -1173,6 +1174,7 @@ import DesktopLayout from './components/layout/DesktopLayout.vue'
 import SidebarThreadTree from './components/sidebar/SidebarThreadTree.vue'
 import ContentHeader from './components/content/ContentHeader.vue'
 import ThreadComposer from './components/content/ThreadComposer.vue'
+import PlanProgressPopover from './components/content/PlanProgressPopover.vue'
 import ThreadPendingRequestPanel from './components/content/ThreadPendingRequestPanel.vue'
 import QueuedMessages from './components/content/QueuedMessages.vue'
 import RateLimitStatus from './components/content/RateLimitStatus.vue'
@@ -1231,6 +1233,7 @@ import type { GitCommitFileChange, GitCommitOption, LocalDirectoryEntry, Telegra
 import { getFreeModeStatus, setFreeMode, setFreeModeCustomKey, setCustomProvider } from './api/codexGateway'
 import { getPathLeafName, getPathParent, isProjectlessChatPath, normalizePathForUi } from './pathUtils.js'
 import { copyTextToClipboard } from './utils/clipboard'
+import { selectLatestPlanProgress } from './utils/planProgress'
 
 const ThreadConversation = defineAsyncComponent(() => import('./components/content/ThreadConversation.vue'))
 const ThreadTerminalPanel = defineAsyncComponent(() => import('./components/content/ThreadTerminalPanel.vue'))
@@ -2138,7 +2141,6 @@ onMounted(() => {
   void loadHomeDirectory()
   void loadFirstLaunchPluginsCardPreference()
   void loadWorkspaceRootOptionsState()
-  void refreshDefaultProjectName()
   void refreshTelegramConfig()
   void refreshTelegramStatus()
   void loadFreeModeStatus()
@@ -2955,7 +2957,6 @@ async function onCreateProjectWorktree(projectName: string): Promise<void> {
     newThreadRuntime.value = 'local'
     pinProjectToTop(getProjectOrderNameForPath(normalizedPath))
     await loadWorkspaceRootOptionsState()
-    await refreshDefaultProjectName()
     if (isMobile.value) setSidebarCollapsed(true)
     if (!isHomeRoute.value) {
       await router.push({ name: 'home' })
@@ -3036,7 +3037,6 @@ function onRenameThread(payload: { threadId: string; title: string }): void {
 async function onRemoveProject(projectName: string): Promise<void> {
   await removeProject(projectName)
   await loadWorkspaceRootOptionsState()
-  void refreshDefaultProjectName()
 }
 
 function onReorderProject(payload: { projectName: string; toIndex: number }): void {
@@ -3377,7 +3377,6 @@ function onWindowPageShow(event: PageTransitionEvent): void {
 function onWindowFocus(): void {
   if (route.name === 'home') {
     void loadWorkspaceRootOptionsState()
-    void refreshDefaultProjectName()
   }
   maybeSyncAfterMobileResume()
 }
@@ -3718,7 +3717,7 @@ async function onOpenProjectSetupModal(): Promise<void> {
   const baseDir = await resolveProjectBaseDirectory()
   if (!baseDir) return
 
-  await refreshDefaultProjectName()
+  await refreshDefaultProjectName(baseDir)
   projectSetupBaseDir.value = baseDir
   projectNameDraft.value = defaultNewProjectName.value.trim() || 'New Project (1)'
   githubCloneUrlDraft.value = ''
@@ -3772,7 +3771,6 @@ async function onSubmitProjectSetup(): Promise<void> {
     newThreadCwd.value = normalizedPath
     pinProjectToTop(getProjectOrderNameForPath(normalizedPath))
     await loadWorkspaceRootOptionsState()
-    await refreshDefaultProjectName()
     isProjectSetupModalOpen.value = false
   } catch (error) {
     projectSetupError.value = error instanceof Error ? error.message : 'Failed to create or clone project.'
@@ -3806,7 +3804,6 @@ async function finishProjectImport(
     pinProjectToTop(getProjectOrderNameForPath(result.path))
     await loadWorkspaceRootOptionsState()
     await refreshAll({ includeSelectedThreadMessages: false, forceThreadRefresh: true })
-    await refreshDefaultProjectName()
   } catch (error) {
     const message = error instanceof Error ? error.message : fallbackMessage
     window.alert(message)
@@ -3903,7 +3900,6 @@ async function onConfirmExistingFolder(path = resolvedExistingFolderPath.value):
     pinProjectToTop(getProjectOrderNameForPath(normalizedPath))
     await loadWorkspaceRootOptionsState()
     await refreshAll({ includeSelectedThreadMessages: false, forceThreadRefresh: true })
-    await refreshDefaultProjectName()
     onCloseExistingFolderPanel()
   } catch (error) {
     existingFolderError.value = error instanceof Error ? error.message : 'Failed to open the selected folder.'
@@ -4021,8 +4017,7 @@ async function resolveProjectBaseDirectory(): Promise<string> {
   return ''
 }
 
-async function refreshDefaultProjectName(): Promise<void> {
-  const baseDir = getProjectBaseDirectory()
+async function refreshDefaultProjectName(baseDir: string): Promise<void> {
   if (!baseDir) {
     defaultNewProjectName.value = 'New Project (1)'
     return
@@ -4190,14 +4185,6 @@ function onRollback(payload: { turnId: string }): void {
   }
   void rollbackSelectedThread(payload.turnId)
 }
-
-function onImplementPlan(payload: { turnId: string }): void {
-  if (isHomeRoute.value || !selectedThreadId.value) return
-  setSelectedCollaborationMode('default')
-  scheduleMobileConversationJumpToLatest()
-  void sendMessageToSelectedThread('Implement', [], [], 'steer', [], undefined, 'default')
-}
-
 
 async function copySelectedThreadChat(): Promise<void> {
   if (isHomeRoute.value || isSkillsRoute.value || isAutomationsRoute.value) return
@@ -4745,7 +4732,6 @@ watch(
   (options) => {
     if (options.length === 0) {
       newThreadCwd.value = ''
-      void refreshDefaultProjectName()
       return
     }
     const selected = newThreadCwd.value.trim()
@@ -4755,7 +4741,6 @@ watch(
         newThreadCwd.value = ''
       }
     }
-    void refreshDefaultProjectName()
   },
   { immediate: true },
 )
@@ -4764,9 +4749,9 @@ watch(
   () => newThreadCwd.value,
   () => {
     worktreeInitStatus.value = { phase: 'idle', title: '', message: '' }
-    void refreshDefaultProjectName()
   },
 )
+const selectedPlanProgress = computed(() => selectLatestPlanProgress(messages.value))
 
 watch(
   () => [route.name, newThreadCwd.value] as const,

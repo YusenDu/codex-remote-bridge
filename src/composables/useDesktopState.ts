@@ -60,6 +60,7 @@ import type {
   UiThread,
 } from '../types/codex'
 import { getPathParent, isProjectlessChatPath, normalizePathForUi, toProjectName } from '../pathUtils.js'
+import { classifyThreadSyncEvent } from './threadSyncPolicy.js'
 
 function flattenThreads(groups: UiProjectGroup[]): UiThread[] {
   return groups.flatMap((group) => group.threads)
@@ -1551,6 +1552,7 @@ export function useDesktopState() {
   let pendingThreadsRefreshForce = false
   const pendingThreadMessageRefresh = new Set<string>()
   const pendingForcedThreadMessageRefresh = new Set<string>()
+  const dirtyThreadIds = new Set<string>()
   const lastMessageLoadAtByThreadId = new Map<string, number>()
   const lastMessageLoadFailureAtByThreadId = new Map<string, number>()
   let threadListNextCursor: string | null = null
@@ -2307,6 +2309,9 @@ export function useDesktopState() {
     threadTokenUsageByThreadId.value = pruneThreadStateMap(threadTokenUsageByThreadId.value, activeThreadIds)
     eventUnreadByThreadId.value = pruneThreadStateMap(eventUnreadByThreadId.value, activeThreadIds)
     inProgressById.value = pruneThreadStateMap(inProgressById.value, activeThreadIds)
+    for (const threadId of dirtyThreadIds) {
+      if (!activeThreadIds.has(threadId)) dirtyThreadIds.delete(threadId)
+    }
     const nextPending: Record<string, UiServerRequest[]> = {}
     for (const [threadId, requests] of Object.entries(pendingServerRequestsByThreadId.value)) {
       if (threadId === GLOBAL_SERVER_REQUEST_SCOPE || activeThreadIds.has(threadId)) {
@@ -3718,17 +3723,7 @@ export function useDesktopState() {
     if (!item) return null
     const id = readString(item.id)
     if (!id) return null
-    if (item.type === 'imageView') {
-      const path = readString(item.path)
-      if (!path) return null
-      return {
-        id,
-        role: 'assistant',
-        text: '',
-        images: [toLocalImageUrl(path)],
-        messageType: 'imageView',
-      }
-    }
+    if (item.type === 'imageView') return null
     if (item.type !== 'imageGeneration' && item.type !== 'image_generation') return null
     const result = readString(item.result)
     const imageUrl = result ? toImageGenerationUrl(result) : ''
@@ -4187,35 +4182,27 @@ export function useDesktopState() {
   }
 
   function queueEventDrivenSync(notification: RpcNotification): void {
-    if (notification.method === 'thread/tokenUsage/updated') return
-
     const method = notification.method
-    const isExternalSessionUpdate = method === 'bridge/thread-session-updated'
-    const shouldRefreshMessages =
-      method === 'turn/started' ||
-      method === 'turn/completed' ||
-      method === 'error' ||
-      method === 'bridge/user-message-submitted' ||
-      isExternalSessionUpdate
-    const shouldRefreshThreads =
-      method.startsWith('thread/') ||
-      method === 'turn/completed'
-
-    if (!shouldRefreshMessages && !shouldRefreshThreads) return
-
+    const decision = classifyThreadSyncEvent(method)
+    if (!decision.dirtyThread && !decision.refreshList) return
     const threadId = extractThreadIdFromNotification(notification)
-    if (threadId && shouldRefreshMessages) {
-      pendingThreadMessageRefresh.add(threadId)
-      if (isExternalSessionUpdate) {
+    if (threadId && decision.dirtyThread) {
+      dirtyThreadIds.add(threadId)
+      if (threadId === selectedThreadId.value) {
+        pendingThreadMessageRefresh.add(threadId)
         pendingForcedThreadMessageRefresh.add(threadId)
       }
     }
 
-    if (shouldRefreshThreads) {
+    const isKnownThread = threadId
+      ? flattenThreads(sourceGroups.value).some((thread) => thread.id === threadId)
+      : false
+    if (decision.refreshList || (decision.dirtyThread && threadId && !isKnownThread)) {
       pendingThreadsRefresh = true
       pendingThreadsRefreshForce = true
     }
 
+    if (!pendingThreadsRefresh && pendingThreadMessageRefresh.size === 0) return
     if (eventSyncTimer !== null || typeof window === 'undefined') return
     eventSyncTimer = window.setTimeout(() => {
       eventSyncTimer = null
@@ -4657,6 +4644,7 @@ export function useDesktopState() {
       }
       lastMessageLoadAtByThreadId.set(threadId, Date.now())
       lastMessageLoadFailureAtByThreadId.delete(threadId)
+      dirtyThreadIds.delete(threadId)
 
       if (version) {
         loadedVersionByThreadId.value = {
@@ -4858,7 +4846,7 @@ export function useDesktopState() {
     setSelectedThreadId(threadId)
 
     try {
-      await loadMessages(threadId)
+      await loadMessages(threadId, { force: dirtyThreadIds.has(threadId) })
       await refreshModelPreferences({ includeProviderModels: true })
       void refreshSkills()
       return 'ok'
@@ -5788,6 +5776,7 @@ export function useDesktopState() {
     pendingThreadsRefresh = false
     pendingThreadMessageRefresh.clear()
     pendingForcedThreadMessageRefresh.clear()
+    dirtyThreadIds.clear()
     pendingTurnStartsById.clear()
     if (eventSyncTimer !== null && typeof window !== 'undefined') {
       window.clearTimeout(eventSyncTimer)

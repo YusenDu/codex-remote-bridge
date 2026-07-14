@@ -41,12 +41,16 @@ export function getPathLeafName(value: string): string {
 }
 
 export function getPathParent(value: string): string {
-  const normalized = normalizePathForUi(value).replace(/[\\/]+$/u, '')
+  const source = normalizePathForUi(value)
+  if (/^[a-z]:[\\/]*$/iu.test(source)) return `${source.slice(0, 2)}\\`
+
+  const normalized = source.replace(/[\\/]+$/u, '')
   if (!normalized) return ''
 
   const separatorIndex = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'))
   if (separatorIndex <= 0) return ''
-  return normalized.slice(0, separatorIndex)
+  const parent = normalized.slice(0, separatorIndex)
+  return /^[a-z]:$/iu.test(parent) ? `${parent}\\` : parent
 }
 
 export function toProjectName(value: string): string {

@@ -8,6 +8,13 @@ const previewState = {
   autoStart: true,
   hasToken: true,
   connectionState: '服务器：已连接',
+  updateStatus: {
+    currentVersion: '0.1.90',
+    latestVersion: '0.1.90',
+    updateAvailable: false,
+    releaseUrl: 'https://github.com/YusenDu/codex-remote-bridge/releases/tag/v0.1.90',
+    publishedAt: '2026-07-14T00:00:00Z',
+  },
 };
 
 const tauriInvoke = window.__TAURI__?.core?.invoke;
@@ -17,11 +24,13 @@ const elements = Object.fromEntries(
     'status-text', 'qr-code', 'access-url', 'copy-url', 'open-web', 'access-note',
     'access-error', 'form', 'serverUrl', 'webUrl', 'deviceId', 'deviceName', 'token',
     'autoStart', 'settings-error', 'save', 'cancel', 'window-minimize', 'window-maximize',
-    'window-close', 'window-titlebar', 'app-version',
+    'window-close', 'window-titlebar', 'app-version', 'update-current-version',
+    'update-status', 'check-update', 'open-update',
   ].map((id) => [id, document.getElementById(id)]),
 );
 
 let currentAccess = null;
+let currentUpdate = null;
 
 document.addEventListener('contextmenu', (event) => event.preventDefault());
 
@@ -49,7 +58,9 @@ async function invoke(command, args) {
       desktopState: 'ready',
     };
   }
-  if (command === 'get_app_version') return '0.1.89';
+  if (command === 'get_app_version') return '0.1.90';
+  if (command === 'check_for_update') return { ...previewState.updateStatus };
+  if (command === 'open_update_release') return null;
   if (command === 'save_config') {
     Object.assign(previewState, args.input, { hasToken: true, connectionState: '服务器：已连接' });
     return null;
@@ -118,6 +129,40 @@ async function loadAccess() {
 async function loadVersion() {
   const version = await invoke('get_app_version');
   elements['app-version'].textContent = `v${version}`;
+  elements['update-current-version'].textContent = `v${version}`;
+}
+
+function renderUpdateStatus(value) {
+  currentUpdate = value;
+  elements['update-current-version'].textContent = `v${value.currentVersion}`;
+  elements['update-status'].textContent = value.updateAvailable
+    ? `发现新版本 v${value.latestVersion}`
+    : '当前已是最新版本';
+  elements['update-status'].dataset.state = value.updateAvailable ? 'available' : 'current';
+  elements['open-update'].hidden = !value.updateAvailable;
+}
+
+async function checkForUpdates({ silent = false } = {}) {
+  elements['check-update'].disabled = true;
+  if (!silent) {
+    elements['update-status'].textContent = '正在检查更新...';
+    elements['update-status'].dataset.state = 'checking';
+  }
+  try {
+    renderUpdateStatus(await invoke('check_for_update'));
+  } catch (reason) {
+    currentUpdate = null;
+    elements['open-update'].hidden = true;
+    elements['update-status'].dataset.state = 'error';
+    elements['update-status'].textContent = `暂时无法检查更新：${String(reason)}`;
+  } finally {
+    elements['check-update'].disabled = false;
+  }
+}
+
+async function openAvailableUpdate() {
+  if (!currentUpdate?.updateAvailable || !currentUpdate.releaseUrl) return;
+  await invoke('open_update_release', { releaseUrl: currentUpdate.releaseUrl });
 }
 
 async function loadSettings() {
@@ -169,6 +214,8 @@ elements['open-settings'].addEventListener('click', async () => {
 elements['back-to-access'].addEventListener('click', () => showView('access'));
 elements['copy-url'].addEventListener('click', copyAccessUrl);
 elements['open-web'].addEventListener('click', () => invoke('open_mobile_access'));
+elements['check-update'].addEventListener('click', () => checkForUpdates());
+elements['open-update'].addEventListener('click', () => openAvailableUpdate());
 elements.cancel.addEventListener('click', () => invoke('hide_settings'));
 elements['window-minimize'].addEventListener('click', () => controlWindow('minimize'));
 elements['window-maximize'].addEventListener('click', () => controlWindow('maximize'));
@@ -204,5 +251,6 @@ elements.form.addEventListener('submit', async (event) => {
 });
 
 loadVersion().catch(() => {});
+checkForUpdates({ silent: true });
 loadAccess();
 window.setInterval(() => refreshStatus().catch(() => {}), 2000);

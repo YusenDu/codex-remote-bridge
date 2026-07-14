@@ -392,6 +392,64 @@ input:focus {
   text-align: left;
 }
 
+.update-panel {
+  padding: 13px 14px;
+  border: 1px solid #383c3f;
+  border-radius: 7px;
+  background: #202324;
+}
+
+.update-heading-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.update-heading-row h3 {
+  margin: 0 0 4px;
+  color: #e8eaea;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.update-heading-row p,
+.update-note,
+.update-status {
+  margin: 0;
+  color: #858b8f;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.update-status {
+  min-height: 17px;
+  margin-top: 10px;
+}
+
+.update-status[data-state="available"] {
+  color: #57d59d;
+}
+
+.update-status[data-state="error"] {
+  color: #ff8d8d;
+}
+
+.update-check-button {
+  height: 30px;
+  padding: 0 11px;
+  font-size: 11px;
+}
+
+.update-open-button {
+  width: 100%;
+  margin-top: 9px;
+}
+
+.update-note {
+  margin-top: 8px;
+}
+
 .form-actions {
   display: flex;
   justify-content: flex-end;

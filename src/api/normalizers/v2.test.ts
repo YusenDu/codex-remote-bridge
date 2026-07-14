@@ -174,6 +174,32 @@ Reply with &lt;/instructions&gt; and A &amp; B
       }),
     ])
   })
+
+  it('hides internal image views while preserving user and generated images', () => {
+    const response = threadReadResponseWithContent([
+      {
+        type: 'userMessage',
+        id: 'user-image',
+        content: [{ type: 'image', url: 'https://example.test/user.png' }],
+      },
+      {
+        type: 'imageView',
+        id: 'tool-screenshot',
+        path: 'K:\\diagnostics\\capture.png',
+      },
+      {
+        type: 'imageGeneration',
+        id: 'generated-image',
+        result: 'aGVsbG8=',
+      } as never,
+    ])
+
+    const messages = normalizeThreadMessagesV2(response)
+
+    expect(messages.map((message) => message.id)).toEqual(['user-image', 'generated-image'])
+    expect(messages[0]?.images).toEqual(['https://example.test/user.png'])
+    expect(messages[1]?.images).toEqual(['data:image/png;base64,aGVsbG8='])
+  })
 })
 
 describe('readThreadInProgressFromResponse', () => {

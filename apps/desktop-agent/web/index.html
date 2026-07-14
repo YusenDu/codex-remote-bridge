@@ -13,7 +13,7 @@
         <div class="brand" data-tauri-drag-region>
           <img class="brand-mark" src="./app-icon.png" alt="" data-tauri-drag-region />
           <span data-tauri-drag-region>Codex Bridge</span>
-          <span class="brand-version" id="app-version" data-tauri-drag-region>v0.1.89</span>
+          <span class="brand-version" id="app-version" data-tauri-drag-region>v0.1.90</span>
         </div>
         <div class="titlebar-drag-region" data-tauri-drag-region aria-hidden="true"></div>
         <button class="text-button" id="open-settings" type="button">设置</button>
@@ -65,6 +65,18 @@
           </div>
           <label>配对令牌<input id="token" type="password" autocomplete="new-password" placeholder="留空则继续使用已保存令牌" /></label>
           <label class="check-row"><input id="autoStart" type="checkbox" />登录 Windows 时自动启动</label>
+          <section class="update-panel" aria-labelledby="update-heading">
+            <div class="update-heading-row">
+              <div>
+                <h3 id="update-heading">软件更新</h3>
+                <p>当前版本 <span id="update-current-version">--</span></p>
+              </div>
+              <button class="secondary-button update-check-button" id="check-update" type="button">检查更新</button>
+            </div>
+            <p class="update-status" id="update-status" aria-live="polite">尚未检查更新</p>
+            <button class="primary-form-button update-open-button" id="open-update" type="button" hidden>打开下载页面</button>
+            <p class="update-note">新版安装包会请求管理员权限并安装到系统程序目录。</p>
+          </section>
           <p class="inline-error settings-error" id="settings-error" role="alert"></p>
           <div class="form-actions">
             <button class="secondary-button" type="button" id="cancel">关闭</button>

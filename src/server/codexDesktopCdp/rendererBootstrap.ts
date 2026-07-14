@@ -103,6 +103,27 @@ export function createRendererBootstrapSource(bindingName: string): string {
       }
       return false;
     };
+    const threadMethodsWithTurns = new Set([
+      'thread/read',
+      'thread/resume',
+      'thread/fork',
+      'thread/rollback'
+    ]);
+    const trimThreadResult = (method, result) => {
+      if (!threadMethodsWithTurns.has(method) || !result || typeof result !== 'object') return result;
+      const thread = result.thread;
+      const turns = thread && Array.isArray(thread.turns) ? thread.turns : null;
+      if (!turns || turns.length <= 10) return result;
+      const start = turns.length - 10;
+      const previousStart = Number.isFinite(result.threadTurnStartIndex)
+        ? Math.max(0, Math.floor(result.threadTurnStartIndex))
+        : 0;
+      return {
+        ...result,
+        threadTurnStartIndex: previousStart + start,
+        thread: { ...thread, turns: turns.slice(start) }
+      };
+    };
 
     addDisposer(manager.addNotificationCallback(notificationMethods, (event) => {
       emit('notification', event);
@@ -153,7 +174,8 @@ export function createRendererBootstrapSource(bindingName: string): string {
         if (typeof method !== 'string' || !/^[A-Za-z0-9._/-]{1,160}$/.test(method)) {
           throw new Error('Desktop RPC method is invalid.');
         }
-        return manager.sendRequest(method, params ?? null, { priority: 'critical' });
+        const result = await manager.sendRequest(method, params ?? null, { priority: 'critical' });
+        return trimThreadResult(method, result);
       },
       dispose() {
         if (disposed) return;
