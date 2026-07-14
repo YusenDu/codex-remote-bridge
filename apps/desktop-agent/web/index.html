@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Codex Bridge</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="titlebar">
+        <div class="brand"><span class="brand-mark" aria-hidden="true"></span>Codex Bridge</div>
+        <button class="text-button" id="open-settings" type="button">设置</button>
+      </header>
+
+      <section class="view access-view" id="access-view" aria-labelledby="access-title">
+        <div class="status-line" id="status-line" data-state="connecting">
+          <span class="status-dot" aria-hidden="true"></span>
+          <span id="status-text">正在读取连接状态</span>
+        </div>
+
+        <h1 id="access-title">用手机继续</h1>
+        <p class="supporting-copy">扫描二维码，在手机上访问这台电脑</p>
+
+        <div class="qr-frame" id="qr-code" aria-label="手机访问二维码">
+          <div class="qr-loading">正在生成二维码</div>
+        </div>
+
+        <div class="url-field">
+          <output id="access-url" title="手机访问地址">读取访问地址中...</output>
+          <button class="compact-button" id="copy-url" type="button" disabled>复制</button>
+        </div>
+
+        <button class="primary-button" id="open-web" type="button" disabled>在本机打开网页</button>
+        <p class="access-note" id="access-note">通过固定 Web 服务安全连接</p>
+        <p class="inline-error" id="access-error" role="alert"></p>
+      </section>
+
+      <section class="view settings-view" id="settings-view" aria-labelledby="settings-title" hidden>
+        <div class="settings-heading">
+          <button class="back-button" id="back-to-access" type="button" aria-label="返回扫码页面">&#8592;</button>
+          <div>
+            <h2 id="settings-title">连接设置</h2>
+            <p>配置固定服务器和这台电脑的身份</p>
+          </div>
+        </div>
+
+        <form id="form">
+          <label>服务器地址<input id="serverUrl" type="url" required placeholder="https://codex.example.com" /></label>
+          <label>网页地址<input id="webUrl" type="url" required placeholder="https://codex.example.com" /></label>
+          <div class="field-grid">
+            <label>设备 ID<input id="deviceId" type="text" required autocomplete="off" /></label>
+            <label>设备名称<input id="deviceName" type="text" required autocomplete="off" /></label>
+          </div>
+          <label>配对令牌<input id="token" type="password" autocomplete="new-password" placeholder="留空则继续使用已保存令牌" /></label>
+          <label class="check-row"><input id="autoStart" type="checkbox" />登录 Windows 时自动启动</label>
+          <p class="inline-error settings-error" id="settings-error" role="alert"></p>
+          <div class="form-actions">
+            <button class="secondary-button" type="button" id="cancel">关闭</button>
+            <button class="primary-form-button" type="submit" id="save">保存并连接</button>
+          </div>
+        </form>
+      </section>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

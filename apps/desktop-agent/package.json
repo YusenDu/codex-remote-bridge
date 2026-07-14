@@ -1,0 +1,11 @@
+{
+  "name": "codex-desktop-bridge-agent",
+  "version": "0.1.87",
+  "private": true,
+  "description": "Tauri Windows tray bridge for Codex Desktop remote web access",
+  "scripts": {
+    "tauri": "tauri"
+  },
+  "author": "Codex Web contributors",
+  "license": "MIT"
+}
