@@ -71,8 +71,13 @@ user's computer and no router port forwarding is required.
 ```bash
 pnpm install
 pnpm run build
-node dist-cli/index.js --port 5900 --no-open --no-tunnel --no-login
+node dist-cli/index.js --port 5900 --no-open --no-tunnel --no-login --no-password
 ```
+
+`--no-password` disables the web login prompt. On a public deployment, the web UI and
+relay APIs are then reachable without a shared password, so access must be restricted by
+an upstream identity-aware proxy, VPN, or equivalent network policy. Agent pairing tokens
+remain required and must not be removed.
 
 Build the Windows agent:
 
