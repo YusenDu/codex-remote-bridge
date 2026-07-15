@@ -222,11 +222,11 @@
                 :data-role="message.role"
               >
                 <li v-for="imageUrl in message.images" :key="imageUrl" class="message-image-item">
-                  <button class="message-image-button" type="button" @click="openImageModal(imageUrl)">
+                  <button class="message-image-button" type="button" @click="openImageModal(toRenderableImageUrl(imageUrl))">
                     <img
                       class="message-image-preview"
                       :class="{ 'message-generated-image-preview': message.messageType === 'imageView' }"
-                      :src="imageUrl"
+                      :src="toRenderableImageUrl(imageUrl)"
                       :alt="message.messageType === 'imageView' ? 'Generated image' : 'Message image preview'"
                       loading="lazy"
                     />
@@ -547,11 +547,11 @@
                       v-else
                       class="message-image-button"
                       type="button"
-                      @click="openImageModal(block.url)"
+                      @click="openImageModal(toRenderableImageUrl(block.url))"
                     >
                       <img
                         class="message-image-preview message-markdown-image"
-                        :src="block.url"
+                        :src="toRenderableImageUrl(block.url)"
                         :alt="block.alt || 'Embedded message image'"
                         loading="lazy"
                         @error="onMarkdownImageError(message.id, blockIndex)"
@@ -890,6 +890,7 @@ import { updateThreadFileChanges } from '../../api/codexGateway'
 import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics'
 import { useMobile } from '../../composables/useMobile'
 import { copyTextToClipboard, copyTextWithSelectionFallback } from '../../utils/clipboard'
+import { routeLocalImageUrl } from '../../utils/localImageUrl'
 import { isPlanMessage, withoutPlanMessages } from '../../utils/planProgress'
 
 import IconTablerArrowBackUp from '../icons/IconTablerArrowBackUp.vue'
@@ -2684,6 +2685,7 @@ function getInlineSegments(text: string): InlineSegment[] {
 function toRenderableImageUrl(value: string): string {
   const normalized = value.trim()
   if (!normalized) return ''
+  let renderableUrl = normalized
   if (
     normalized.startsWith('data:') ||
     normalized.startsWith('blob:') ||
@@ -2691,17 +2693,19 @@ function toRenderableImageUrl(value: string): string {
     normalized.startsWith('https://') ||
     normalized.startsWith('/codex-local-image?')
   ) {
-    return normalized
+    return routeLocalImageUrl(normalized, props.activeThreadId)
   }
 
   if (normalized.startsWith('file://')) {
-    return `/codex-local-image?path=${encodeURIComponent(normalized)}`
+    renderableUrl = `/codex-local-image?path=${encodeURIComponent(normalized)}`
+    return routeLocalImageUrl(renderableUrl, props.activeThreadId)
   }
 
   const looksLikeUnixAbsolute = normalized.startsWith('/')
   const looksLikeWindowsAbsolute = /^[A-Za-z]:[\\/]/u.test(normalized)
   if (looksLikeUnixAbsolute || looksLikeWindowsAbsolute) {
-    return `/codex-local-image?path=${encodeURIComponent(normalized)}`
+    renderableUrl = `/codex-local-image?path=${encodeURIComponent(normalized)}`
+    return routeLocalImageUrl(renderableUrl, props.activeThreadId)
   }
 
   return normalized
@@ -3586,7 +3590,7 @@ function renderMessageBlockAsHtml(block: MessageBlock): string {
   if (block.kind === 'thematicBreak') {
     return '<hr class="message-divider">'
   }
-  return `<img class="message-image-preview message-markdown-image" src="${escapeHtml(block.url)}" alt="${escapeHtml(block.alt || 'Embedded message image')}" loading="lazy">`
+  return `<img class="message-image-preview message-markdown-image" src="${escapeHtml(toRenderableImageUrl(block.url))}" alt="${escapeHtml(block.alt || 'Embedded message image')}" loading="lazy">`
 }
 
 function renderMarkdownBlocksAsHtml(text: string): string {

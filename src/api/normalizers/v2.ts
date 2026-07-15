@@ -74,7 +74,7 @@ function extractCodexUserRequestText(value: string): string {
 }
 
 function toLocalImageUrl(path: string): string {
-  return `/codex-local-image?path=${encodeURIComponent(path)}`
+  return `/codex-local-image?path=${encodeURIComponent(path)}&source=desktop`
 }
 
 function toImageGenerationUrl(value: string): string {

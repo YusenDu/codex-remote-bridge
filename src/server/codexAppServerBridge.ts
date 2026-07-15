@@ -28,6 +28,10 @@ import {
   type AgentServerSocket,
 } from './desktopAgentRelay.js'
 import { callRpcWithRateLimitDecodeRecovery } from './rateLimitDecodeRecovery.js'
+import {
+  decodeRemoteImagePayload,
+  payloadReferencesRemoteImagePath,
+} from './remoteImage.js'
 import { handleReviewRoutes } from './reviewGit.js'
 import { handleSkillsRoutes, initializeSkillsSyncOnStartup } from './skillsRoutes.js'
 import { TelegramThreadBridge } from './telegramThreadBridge.js'
@@ -690,7 +694,7 @@ async function persistInlineDataUrlToLocalFile(dataUrl: string, baseName: string
 }
 
 function toLocalImageProxyUrl(path: string): string {
-  return `/codex-local-image?path=${encodeURIComponent(path)}`
+  return `/codex-local-image?path=${encodeURIComponent(path)}&source=server`
 }
 
 const INLINE_IMAGE_FIELD_NAMES = new Set([
@@ -8466,6 +8470,60 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       const url = new URL(req.url, 'http://localhost')
+
+      if (
+        req.method === 'GET'
+        && url.pathname === '/codex-local-image'
+        && url.searchParams.get('source') === 'desktop'
+      ) {
+        const imagePath = (url.searchParams.get('path') ?? '').trim()
+        const threadId = (url.searchParams.get('threadId') ?? '').trim()
+        let deviceId: string | undefined
+        try {
+          deviceId = readDesktopAgentDeviceIdFromUrl(url)
+        } catch (error) {
+          setJson(res, 400, { error: getErrorMessage(error, 'Invalid deviceId') })
+          return
+        }
+        if (!imagePath || !threadId || !deviceId) {
+          setJson(res, 400, { error: 'Desktop image requests require path, threadId, and deviceId' })
+          return
+        }
+
+        try {
+          const threadPayload = await desktopAgentRelay.rpc(
+            'thread/read',
+            { threadId, includeTurns: true },
+            deviceId,
+          )
+          if (!payloadReferencesRemoteImagePath(threadPayload, imagePath)) {
+            setJson(res, 403, { error: 'Image path is not part of the requested thread' })
+            return
+          }
+
+          const dispatch = await dispatchDesktopAgentLocalOperation(
+            desktopBridgeMode,
+            'read-image-file',
+            { path: imagePath },
+            desktopAgentRelay,
+            deviceId,
+          )
+          if (!dispatch.handled) {
+            setJson(res, 503, { error: 'Desktop image proxy requires agent bridge mode' })
+            return
+          }
+          const image = decodeRemoteImagePayload(dispatch.result)
+          res.statusCode = 200
+          res.setHeader('Content-Type', image.contentType)
+          res.setHeader('Content-Length', String(image.bytes.length))
+          res.setHeader('Cache-Control', 'private, max-age=300')
+          res.setHeader('X-Content-Type-Options', 'nosniff')
+          res.end(image.bytes)
+        } catch (error) {
+          setJson(res, 502, { error: getErrorMessage(error, 'Failed to load image from desktop agent') })
+        }
+        return
+      }
 
       if (url.pathname === '/codex-api/zen-proxy/v1/responses' && req.method === 'POST') {
         if (!isLoopbackRemoteAddress(req.socket.remoteAddress)) {

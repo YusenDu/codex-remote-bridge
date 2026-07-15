@@ -200,6 +200,18 @@ Reply with &lt;/instructions&gt; and A &amp; B
     expect(messages[0]?.images).toEqual(['https://example.test/user.png'])
     expect(messages[1]?.images).toEqual(['data:image/png;base64,aGVsbG8='])
   })
+
+  it('marks desktop-local user screenshots for agent routing', () => {
+    const messages = normalizeThreadMessagesV2(threadReadResponseWithContent([{
+      type: 'userMessage',
+      id: 'user-local-image',
+      content: [{ type: 'localImage', path: 'C:\\Users\\tester\\screenshot.png' }],
+    }]))
+
+    expect(messages[0]?.images).toEqual([
+      '/codex-local-image?path=C%3A%5CUsers%5Ctester%5Cscreenshot.png&source=desktop',
+    ])
+  })
 })
 
 describe('readThreadInProgressFromResponse', () => {

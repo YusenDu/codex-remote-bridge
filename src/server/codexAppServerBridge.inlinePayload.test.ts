@@ -22,6 +22,7 @@ afterEach(() => {
 function localImagePathFromProxyUrl(value: string): string {
   const parsed = new URL(value, 'http://localhost')
   expect(parsed.pathname).toBe('/codex-local-image')
+  expect(parsed.searchParams.get('source')).toBe('server')
   const imagePath = parsed.searchParams.get('path')
   expect(imagePath).toBeTruthy()
   return imagePath ?? ''

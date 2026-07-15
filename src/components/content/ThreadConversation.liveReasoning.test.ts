@@ -10,4 +10,10 @@ describe('ThreadConversation live reasoning contract', () => {
     )
     expect(source).not.toContain('{{ liveOverlay.reasoningText }}')
   })
+
+  it('routes desktop-local images through the active thread and device', () => {
+    expect(source).toContain(':src="toRenderableImageUrl(imageUrl)"')
+    expect(source).toContain(':src="toRenderableImageUrl(block.url)"')
+    expect(source).toMatch(/routeLocalImageUrl\([^,]+, props\.activeThreadId\)/u)
+  })
 })

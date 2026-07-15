@@ -1,21 +1,70 @@
 use anyhow::{bail, Context, Result};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use serde_json::{json, Value};
 use std::{
     collections::HashMap,
+    fs,
     path::{Path, PathBuf},
     process::Command,
 };
+
+const MAX_REMOTE_IMAGE_BYTES: u64 = 8 * 1024 * 1024;
 
 pub async fn execute(method: &str, params: Value) -> Option<Result<Value>> {
     match method {
         "codex-web/local/project-root-suggestion" => Some(project_root_suggestion(&params)),
         "codex-web/local/worktree-branches" => Some(worktree_branches(&params)),
         "codex-web/local/git-branches" => Some(git_branches(&params)),
+        "codex-web/local/read-image-file" => Some(read_image_file(&params)),
         _ if method.starts_with("codex-web/local/") => {
             Some(Err(anyhow::anyhow!("local operation is unsupported")))
         }
         _ => None,
     }
+}
+
+fn read_image_file(params: &Value) -> Result<Value> {
+    let path = required_path(params, "path")?;
+    let metadata = fs::metadata(&path).context("image file does not exist")?;
+    if !metadata.is_file() {
+        bail!("image path is not a regular file");
+    }
+    if metadata.len() == 0 || metadata.len() > MAX_REMOTE_IMAGE_BYTES {
+        bail!("image file is empty or too large");
+    }
+    let bytes = fs::read(&path).context("failed to read image file")?;
+    let content_type = detect_image_content_type(&bytes)
+        .context("unsupported image file")?;
+    Ok(json!({
+        "data": BASE64_STANDARD.encode(&bytes),
+        "contentType": content_type,
+        "size": bytes.len(),
+    }))
+}
+
+fn detect_image_content_type(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+        return Some("image/png");
+    }
+    if bytes.starts_with(&[0xff, 0xd8, 0xff]) {
+        return Some("image/jpeg");
+    }
+    if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+        return Some("image/gif");
+    }
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        return Some("image/webp");
+    }
+    if bytes.starts_with(b"BM") {
+        return Some("image/bmp");
+    }
+    if bytes.len() >= 12
+        && &bytes[4..8] == b"ftyp"
+        && (&bytes[8..12] == b"avif" || &bytes[8..12] == b"avis")
+    {
+        return Some("image/avif");
+    }
+    None
 }
 
 fn worktree_branches(params: &Value) -> Result<Value> {
@@ -280,6 +329,43 @@ mod tests {
         assert!(execute("thread/read", json!({ "threadId": "thread-a" }))
             .await
             .is_none());
+    }
+
+    #[tokio::test]
+    async fn reads_a_bounded_png_for_the_remote_web_preview() {
+        let root = tempfile::tempdir().unwrap();
+        let image_path = root.path().join("screenshot.png");
+        let bytes = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+        fs::write(&image_path, bytes).unwrap();
+
+        let result = execute(
+            "codex-web/local/read-image-file",
+            json!({ "path": image_path }),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(result["contentType"], "image/png");
+        assert_eq!(result["size"], bytes.len());
+        assert_eq!(result["data"], "iVBORw0KGgo=");
+    }
+
+    #[tokio::test]
+    async fn rejects_non_image_files_from_remote_preview_reads() {
+        let root = tempfile::tempdir().unwrap();
+        let text_path = root.path().join("secrets.txt");
+        fs::write(&text_path, "not an image").unwrap();
+
+        let error = execute(
+            "codex-web/local/read-image-file",
+            json!({ "path": text_path }),
+        )
+        .await
+        .unwrap()
+        .unwrap_err();
+
+        assert!(error.to_string().contains("unsupported image"));
     }
 
     #[tokio::test]
