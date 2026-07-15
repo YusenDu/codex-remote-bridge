@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 
-const RELEASE_VERSION = '0.1.91'
+const RELEASE_VERSION = '0.1.92'
 const ESCAPED_RELEASE_VERSION = RELEASE_VERSION.replace(/\./gu, '\\.')
 
 function read(path: string): string {
