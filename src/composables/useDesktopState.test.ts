@@ -740,6 +740,110 @@ describe('startup request deduplication', () => {
 })
 
 describe('live error overlay', () => {
+  it('separates consecutive live reasoning items into markdown paragraphs', async () => {
+    installTestWindow()
+    let notificationHandler: (notification: { method: string; params?: unknown }) => void = () => {}
+    gatewayMocks.subscribeCodexNotifications.mockImplementation((handler) => {
+      notificationHandler = handler
+      return vi.fn()
+    })
+    gatewayMocks.getPendingServerRequests.mockResolvedValue([])
+    gatewayMocks.resumeThread.mockResolvedValue(null)
+    gatewayMocks.getThreadDetail.mockResolvedValue({
+      messages: [],
+      inProgress: true,
+      activeTurnId: 'turn-1',
+      turnIndexByTurnId: {},
+      hasMoreOlder: false,
+    })
+
+    const state = useDesktopState()
+    state.primeSelectedThread('thread-thinking')
+    await state.loadMessages('thread-thinking')
+    state.startPolling()
+
+    notificationHandler({
+      method: 'item/started',
+      params: {
+        threadId: 'thread-thinking',
+        item: { id: 'reasoning-1', type: 'reasoning' },
+      },
+    })
+    notificationHandler({
+      method: 'item/reasoning/summaryTextDelta',
+      params: {
+        threadId: 'thread-thinking',
+        itemId: 'reasoning-1',
+        delta: '**Deciding to use exec_command tool**',
+      },
+    })
+    notificationHandler({
+      method: 'item/completed',
+      params: {
+        threadId: 'thread-thinking',
+        item: { id: 'reasoning-1', type: 'reasoning' },
+      },
+    })
+    notificationHandler({
+      method: 'item/started',
+      params: {
+        threadId: 'thread-thinking',
+        item: { id: 'reasoning-2', type: 'reasoning' },
+      },
+    })
+    notificationHandler({
+      method: 'item/reasoning/summaryTextDelta',
+      params: {
+        threadId: 'thread-thinking',
+        itemId: 'reasoning-2',
+        delta: '**Inspecting ThreadComposer template and upload routing**',
+      },
+    })
+
+    expect(state.selectedLiveOverlay.value?.reasoningText).toBe(
+      '**Deciding to use exec_command tool**\n\n**Inspecting ThreadComposer template and upload routing**',
+    )
+  })
+
+  it('preserves spaces between streamed reasoning deltas', async () => {
+    installTestWindow()
+    let notificationHandler: (notification: { method: string; params?: unknown }) => void = () => {}
+    gatewayMocks.subscribeCodexNotifications.mockImplementation((handler) => {
+      notificationHandler = handler
+      return vi.fn()
+    })
+    gatewayMocks.getPendingServerRequests.mockResolvedValue([])
+    gatewayMocks.resumeThread.mockResolvedValue(null)
+    gatewayMocks.getThreadDetail.mockResolvedValue({
+      messages: [],
+      inProgress: true,
+      activeTurnId: 'turn-1',
+      turnIndexByTurnId: {},
+      hasMoreOlder: false,
+    })
+
+    const state = useDesktopState()
+    state.primeSelectedThread('thread-streaming')
+    await state.loadMessages('thread-streaming')
+    state.startPolling()
+
+    notificationHandler({
+      method: 'item/started',
+      params: {
+        threadId: 'thread-streaming',
+        item: { id: 'reasoning-1', type: 'reasoning' },
+      },
+    })
+    for (const delta of ['Inspecting ', 'ThreadComposer']) {
+      notificationHandler({
+        method: 'item/reasoning/textDelta',
+        params: { threadId: 'thread-streaming', itemId: 'reasoning-1', delta },
+      })
+    }
+
+    expect(state.selectedLiveOverlay.value?.reasoningText).toBe('Inspecting ThreadComposer')
+  })
+
   it('shows the default thinking overlay while a selected thread is in progress without activity events', async () => {
     installTestWindow()
     gatewayMocks.getPendingServerRequests.mockResolvedValue([])

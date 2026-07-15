@@ -705,12 +705,11 @@
           <div class="message-stack">
             <article class="live-overlay-inline" aria-live="polite">
               <p class="live-overlay-label">{{ liveOverlay.activityLabel }}</p>
-              <p
+              <div
                 v-if="liveOverlay.reasoningText"
                 class="live-overlay-reasoning"
-              >
-                {{ liveOverlay.reasoningText }}
-              </p>
+                v-html="renderMarkdownBlocksAsHtml(liveOverlay.reasoningText)"
+              />
               <div v-if="liveOverlay.errorText" class="live-overlay-error">
                 <span>{{ liveOverlay.errorText }}</span>
                 <a class="live-overlay-feedback" :href="feedbackMailto" @click="prepareLiveErrorFeedback($event, liveOverlay.errorText)">Send feedback</a>
@@ -4488,6 +4487,18 @@ onBeforeUnmount(() => {
 
 .live-overlay-reasoning::-webkit-scrollbar {
   display: none;
+}
+
+.live-overlay-reasoning :deep(.message-text) {
+  @apply m-0 text-inherit text-sm leading-5;
+}
+
+.live-overlay-reasoning :deep(.message-text + .message-text) {
+  @apply mt-1;
+}
+
+.live-overlay-reasoning :deep(.message-bold-text) {
+  @apply text-inherit;
 }
 
 .live-overlay-error {

@@ -9,10 +9,10 @@ const previewState = {
   hasToken: true,
   connectionState: '服务器：已连接',
   updateStatus: {
-    currentVersion: '0.1.90',
-    latestVersion: '0.1.90',
+    currentVersion: '0.1.91',
+    latestVersion: '0.1.91',
     updateAvailable: false,
-    releaseUrl: 'https://github.com/YusenDu/codex-remote-bridge/releases/tag/v0.1.90',
+    releaseUrl: 'https://github.com/YusenDu/codex-remote-bridge/releases/tag/v0.1.91',
     publishedAt: '2026-07-14T00:00:00Z',
   },
 };
@@ -58,7 +58,7 @@ async function invoke(command, args) {
       desktopState: 'ready',
     };
   }
-  if (command === 'get_app_version') return '0.1.90';
+  if (command === 'get_app_version') return '0.1.91';
   if (command === 'check_for_update') return { ...previewState.updateStatus };
   if (command === 'open_update_release') return null;
   if (command === 'save_config') {

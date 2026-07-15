@@ -1563,6 +1563,7 @@ export function useDesktopState() {
   let loadedThreadListRootsState: WorkspaceRootsState | null = null
   let hasHydratedWorkspaceRootsState = false
   let activeReasoningItemId = ''
+  const lastReasoningItemIdByThreadId = new Map<string, string>()
   let shouldAutoScrollOnNextAgentEvent = false
   const pendingTurnStartsById = new Map<string, TurnStartedInfo>()
   const fallbackRetryInFlightThreadIds = new Set<string>()
@@ -2774,13 +2775,13 @@ export function useDesktopState() {
 
   function setLiveReasoningText(threadId: string, text: string): void {
     if (!threadId) return
-    const normalized = text.trim()
     const previous = liveReasoningTextByThreadId.value[threadId] ?? ''
-    if (normalized.length === 0) {
+    if (text.trim().length === 0) {
       if (!previous) return
       liveReasoningTextByThreadId.value = omitKey(liveReasoningTextByThreadId.value, threadId)
       return
     }
+    const normalized = previous ? text : text.trimStart()
     if (previous === normalized) return
     liveReasoningTextByThreadId.value = {
       ...liveReasoningTextByThreadId.value,
@@ -2796,6 +2797,7 @@ export function useDesktopState() {
 
   function clearLiveReasoningForThread(threadId: string): void {
     if (!threadId) return
+    lastReasoningItemIdByThreadId.delete(threadId)
     if (!(threadId in liveReasoningTextByThreadId.value)) return
     liveReasoningTextByThreadId.value = omitKey(liveReasoningTextByThreadId.value, threadId)
   }
@@ -4103,6 +4105,14 @@ export function useDesktopState() {
 
     const startedReasoningItemId = readReasoningStartedItemId(notification)
     if (startedReasoningItemId) {
+      const previousReasoningItemId = lastReasoningItemIdByThreadId.get(notificationThreadId) ?? ''
+      if (previousReasoningItemId && previousReasoningItemId !== startedReasoningItemId) {
+        const current = liveReasoningTextByThreadId.value[notificationThreadId] ?? ''
+        if (current.trim().length > 0 && !current.endsWith('\n\n')) {
+          setLiveReasoningText(notificationThreadId, `${current}\n\n`)
+        }
+      }
+      lastReasoningItemIdByThreadId.set(notificationThreadId, startedReasoningItemId)
       activeReasoningItemId = startedReasoningItemId
     }
 
