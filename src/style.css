@@ -759,6 +759,63 @@
   @apply text-rose-300;
 }
 
+:root.dark .command-activity {
+  border-color: #3f3f46;
+  background: #202022;
+}
+
+:root.dark .command-activity-header {
+  color: #f4f4f5;
+}
+
+:root.dark .command-activity-header:hover {
+  background: #29292c;
+}
+
+:root.dark .command-activity-icon,
+:root.dark .command-activity-row-icon {
+  background: #303034;
+  color: #a1a1aa;
+}
+
+:root.dark .command-activity-title {
+  color: #f4f4f5;
+}
+
+:root.dark .command-activity-count,
+:root.dark .command-activity-composition,
+:root.dark .command-activity-status {
+  color: #a1a1aa;
+}
+
+:root.dark .command-activity-count {
+  background: #303034;
+}
+
+:root.dark .command-activity-body {
+  border-color: #3f3f46;
+  background: #18181a;
+}
+
+:root.dark .command-activity-row {
+  color: #d4d4d8;
+}
+
+:root.dark .command-activity-row:hover,
+:root.dark .command-activity-row[aria-expanded='true'] {
+  border-color: #3f3f46;
+  background: #27272a;
+}
+
+:root.dark .command-activity-tool-name,
+:root.dark .command-activity-command {
+  color: #d4d4d8;
+}
+
+:root.dark .command-activity-output.cmd-output-visible {
+  border-color: #3f3f46;
+}
+
 :root.dark .cmd-output-wrap.cmd-output-visible {
   @apply border-zinc-700;
 }

@@ -29,59 +29,75 @@
       >
         <div v-if="isCommandMessage(message)" class="message-row" data-role="system">
           <div class="message-stack" data-role="system">
-            <button
+            <section
               v-if="getGroupedCommandsForLatest(message).length > 0"
-              type="button"
-              class="cmd-row cmd-row-group cmd-compact"
-              :class="[commandStatusClass(message), { 'cmd-expanded': isCommandGroupExpanded(message) }]"
-              @click="toggleCommandGroup(message)"
+              class="command-activity"
+              :class="commandGroupStatusClass(message)"
             >
-              <span class="cmd-chevron" :class="{ 'cmd-chevron-open': isCommandGroupExpanded(message) }">▶</span>
-              <span class="cmd-group-label">{{ commandGroupSummaryLabel(message) }}</span>
-              <span class="cmd-status">{{ commandGroupSummaryStatus(message) }}</span>
-            </button>
-            <div
-              v-if="getGroupedCommandsForLatest(message).length > 0"
-              class="cmd-group-wrap"
-              :class="{ 'cmd-group-visible': isCommandGroupExpanded(message) }"
-            >
-              <div class="cmd-group-inner">
-                <div
-                  v-for="cmd in getCommandBlockForLatest(message)"
-                  :key="`grouped-cmd-${cmd.id}`"
-                  class="worked-cmd-item"
-                >
-                  <button
-                    type="button"
-                    class="cmd-row"
-                    :class="[
-                      commandStatusClass(cmd),
-                      {
-                        'cmd-expanded': isCommandExpanded(cmd),
-                        'cmd-compact': true,
-                      },
-                    ]"
-                    @click="toggleCommandExpand(cmd)"
-                  >
-                    <span class="cmd-chevron" :class="{ 'cmd-chevron-open': isCommandExpanded(cmd) }">▶</span>
-                    <code class="cmd-label">{{ cmd.commandExecution?.command || '(command)' }}</code>
-                    <span class="cmd-status">{{ commandStatusLabel(cmd) }}</span>
-                  </button>
+              <button
+                type="button"
+                class="command-activity-header"
+                :aria-expanded="isCommandGroupExpanded(message)"
+                @click="toggleCommandGroup(message)"
+              >
+                <span class="command-activity-icon" aria-hidden="true">
+                  <IconTablerTerminal class="icon-svg" />
+                </span>
+                <span class="command-activity-meta">
+                  <span class="command-activity-title">命令活动</span>
+                  <span class="command-activity-count">{{ commandGroupCountLabel(message) }}</span>
+                  <span class="command-activity-composition">{{ commandGroupCompositionLabel(message) }}</span>
+                </span>
+                <span class="command-activity-state">
+                  <span class="command-activity-status-dot" aria-hidden="true" />
+                  <span class="command-activity-status">{{ commandGroupStatusLabel(message) }}</span>
+                  <span class="cmd-chevron" :class="{ 'cmd-chevron-open': isCommandGroupExpanded(message) }">▶</span>
+                </span>
+              </button>
+              <div
+                class="cmd-group-wrap"
+                :class="{ 'cmd-group-visible': isCommandGroupExpanded(message) }"
+              >
+                <div class="command-activity-body">
                   <div
-                    class="cmd-output-wrap"
-                    :class="{ 'cmd-output-visible': isCommandExpanded(cmd) }"
+                    v-for="cmd in getCommandBlockForLatest(message)"
+                    :key="`grouped-cmd-${cmd.id}`"
+                    class="command-activity-item"
                   >
-                    <div class="cmd-output-inner">
-                      <pre
-                        class="cmd-output"
-                        :class="{ 'cmd-output-condensed': isCommandOutputCondensed(cmd) }"
-                        v-text="cmd.commandExecution?.aggregatedOutput || '(no output)'"
-                      ></pre>
+                    <button
+                      type="button"
+                      class="command-activity-row"
+                      :class="commandStatusClass(cmd)"
+                      :aria-expanded="isCommandExpanded(cmd)"
+                      @click="toggleCommandExpand(cmd)"
+                    >
+                      <span class="command-activity-row-icon" aria-hidden="true">
+                        <IconTablerTerminal class="icon-svg" />
+                      </span>
+                      <span class="command-activity-tool-name">Shell</span>
+                      <code class="command-activity-command">{{ cmd.commandExecution?.command || '(command)' }}</code>
+                      <span class="command-activity-row-state">
+                        <span class="command-activity-status-dot" aria-hidden="true" />
+                        <span class="command-activity-status">{{ commandStatusLabel(cmd) }}</span>
+                        <span class="cmd-chevron" :class="{ 'cmd-chevron-open': isCommandExpanded(cmd) }">▶</span>
+                      </span>
+                    </button>
+                    <div
+                      class="cmd-output-wrap command-activity-output"
+                      :class="{ 'cmd-output-visible': isCommandExpanded(cmd) }"
+                    >
+                      <div class="cmd-output-inner">
+                        <pre
+                          class="cmd-output"
+                          :class="{ 'cmd-output-condensed': isCommandOutputCondensed(cmd) }"
+                          v-text="cmd.commandExecution?.aggregatedOutput || '(no output)'"
+                        ></pre>
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
+            </section>
             <template v-else>
               <button
                 type="button"
@@ -704,11 +720,11 @@
         <div class="message-row">
           <div class="message-stack">
             <article class="live-overlay-inline" aria-live="polite">
-              <p class="live-overlay-label">{{ liveOverlay.activityLabel }}</p>
+              <p class="live-overlay-label">{{ localizedLiveActivityLabel }}</p>
               <div
-                v-if="liveOverlay.reasoningText"
+                v-if="localizedLiveReasoningText"
                 class="live-overlay-reasoning"
-                v-html="renderMarkdownBlocksAsHtml(liveOverlay.reasoningText)"
+                v-html="renderMarkdownBlocksAsHtml(localizedLiveReasoningText)"
               />
               <div v-if="liveOverlay.errorText" class="live-overlay-error">
                 <span>{{ liveOverlay.errorText }}</span>
@@ -890,6 +906,7 @@ import { updateThreadFileChanges } from '../../api/codexGateway'
 import { useFeedbackDiagnostics } from '../../composables/useFeedbackDiagnostics'
 import { useMobile } from '../../composables/useMobile'
 import { copyTextToClipboard, copyTextWithSelectionFallback } from '../../utils/clipboard'
+import { localizeLiveActivityLabel, localizeLiveReasoningText } from '../../utils/liveActivityLocalization'
 import { routeLocalImageUrl } from '../../utils/localImageUrl'
 import { isPlanMessage, withoutPlanMessages } from '../../utils/planProgress'
 
@@ -898,6 +915,7 @@ import IconTablerArrowUp from '../icons/IconTablerArrowUp.vue'
 import IconTablerCopy from '../icons/IconTablerCopy.vue'
 import IconTablerFilePencil from '../icons/IconTablerFilePencil.vue'
 import IconTablerGitFork from '../icons/IconTablerGitFork.vue'
+import IconTablerTerminal from '../icons/IconTablerTerminal.vue'
 import IconTablerX from '../icons/IconTablerX.vue'
 
 type HighlightJsModule = (typeof import('highlight.js/lib/common'))['default']
@@ -1075,16 +1093,39 @@ function isCommandGroupExpanded(message: UiMessage): boolean {
   return expandedCommandGroupIds.value.has(message.id)
 }
 
-function commandGroupSummaryLabel(message: UiMessage): string {
-  const commands = getCommandBlockForLatest(message)
-  const count = commands.length
-  const latestCommand = message.commandExecution?.command?.trim() || '(command)'
-  const countLabel = count === 1 ? '1 command' : `${count} commands`
-  return `${countLabel} · latest: ${latestCommand}`
+function commandGroupCountLabel(message: UiMessage): string {
+  return `${getCommandBlockForLatest(message).length} 条`
 }
 
-function commandGroupSummaryStatus(message: UiMessage): string {
-  return commandStatusLabel(message)
+function commandGroupCompositionLabel(message: UiMessage): string {
+  return `Shell ${getCommandBlockForLatest(message).length}`
+}
+
+function commandGroupStatus(message: UiMessage): 'running' | 'ok' | 'error' | 'stopped' {
+  const commands = getCommandBlockForLatest(message)
+  if (commands.some((command) => command.commandExecution?.status === 'inProgress')) return 'running'
+  if (commands.some((command) => {
+    const execution = command.commandExecution
+    return execution?.status === 'failed'
+      || (execution?.status === 'completed' && execution.exitCode != null && execution.exitCode !== 0)
+  })) return 'error'
+  if (commands.some((command) => {
+    const status = command.commandExecution?.status
+    return status === 'declined' || status === 'interrupted'
+  })) return 'stopped'
+  return 'ok'
+}
+
+function commandGroupStatusLabel(message: UiMessage): string {
+  const status = commandGroupStatus(message)
+  if (status === 'running') return '运行中'
+  if (status === 'error') return '失败'
+  if (status === 'stopped') return '已停止'
+  return '成功'
+}
+
+function commandGroupStatusClass(message: UiMessage): string {
+  return `command-activity-${commandGroupStatus(message)}`
 }
 
 function toggleWorkedExpand(message: UiMessage): void {
@@ -1144,13 +1185,12 @@ function selectDiffViewerChange(change: UiFileChange): void {
 function commandStatusLabel(message: UiMessage): string {
   const ce = message.commandExecution
   if (!ce) return ''
-  const compact = isCommandCompact(message)
   switch (ce.status) {
-    case 'inProgress': return compact ? 'Running' : '⟳ Running'
-    case 'completed': return ce.exitCode === 0 ? (compact ? 'Done' : '✓ Completed') : `Exit ${ce.exitCode ?? '?'}`
-    case 'failed': return compact ? 'Failed' : '✗ Failed'
-    case 'declined': return compact ? 'Declined' : '⊘ Declined'
-    case 'interrupted': return compact ? 'Stopped' : '⊘ Interrupted'
+    case 'inProgress': return '运行中'
+    case 'completed': return ce.exitCode == null || ce.exitCode === 0 ? '成功' : `退出码 ${ce.exitCode}`
+    case 'failed': return '失败'
+    case 'declined': return '已拒绝'
+    case 'interrupted': return '已停止'
     default: return ''
   }
 }
@@ -1158,7 +1198,7 @@ function commandStatusLabel(message: UiMessage): string {
 function commandStatusClass(message: UiMessage): string {
   const s = message.commandExecution?.status
   if (s === 'inProgress') return 'cmd-status-running'
-  if (s === 'completed' && message.commandExecution?.exitCode === 0) return 'cmd-status-ok'
+  if (s === 'completed' && (message.commandExecution?.exitCode == null || message.commandExecution.exitCode === 0)) return 'cmd-status-ok'
   return 'cmd-status-error'
 }
 
@@ -1198,6 +1238,13 @@ const emit = defineEmits<{
   rollback: [payload: { turnId: string }]
   respondServerRequest: [payload: { id: number; result?: unknown; error?: { code?: number; message: string } }]
 }>()
+
+const localizedLiveActivityLabel = computed(() => (
+  localizeLiveActivityLabel(props.liveOverlay?.activityLabel ?? '')
+))
+const localizedLiveReasoningText = computed(() => (
+  localizeLiveReasoningText(props.liveOverlay?.reasoningText ?? '')
+))
 
 const conversationListRef = ref<HTMLElement | null>(null)
 const bottomAnchorRef = ref<HTMLElement | null>(null)
@@ -4888,6 +4935,214 @@ onBeforeUnmount(() => {
 
 .icon-svg {
   @apply w-5 h-5;
+}
+
+.command-activity {
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.command-activity-header {
+  display: grid;
+  width: 100%;
+  min-height: 42px;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  padding: 7px 10px;
+  color: #27272a;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms ease;
+}
+
+.command-activity-header:hover {
+  background: #f4f4f5;
+}
+
+.command-activity-icon,
+.command-activity-row-icon {
+  display: inline-flex;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: #f4f4f5;
+  color: #71717a;
+}
+
+.command-activity-icon .icon-svg,
+.command-activity-row-icon .icon-svg {
+  width: 14px;
+  height: 14px;
+}
+
+.command-activity-meta {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 7px;
+  white-space: nowrap;
+}
+
+.command-activity-title {
+  overflow: hidden;
+  color: #27272a;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+}
+
+.command-activity-count,
+.command-activity-composition {
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.command-activity-count {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: #f4f4f5;
+}
+
+.command-activity-state,
+.command-activity-row-state {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.command-activity-status-dot {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border-radius: 50%;
+  background: #a1a1aa;
+}
+
+.command-activity-status {
+  color: #71717a;
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.command-activity-running > .command-activity-header .command-activity-status-dot,
+.command-activity-row.cmd-status-running .command-activity-status-dot {
+  background: #f59e0b;
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+}
+
+.command-activity-ok > .command-activity-header .command-activity-status-dot,
+.command-activity-row.cmd-status-ok .command-activity-status-dot {
+  background: #10b981;
+}
+
+.command-activity-error > .command-activity-header .command-activity-status-dot,
+.command-activity-row.cmd-status-error .command-activity-status-dot {
+  background: #f43f5e;
+}
+
+.command-activity-stopped > .command-activity-header .command-activity-status-dot {
+  background: #a1a1aa;
+}
+
+.command-activity-body {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 4px;
+  overflow: hidden;
+  border-top: 1px solid #e4e4e7;
+  padding: 6px;
+  background: #fafafa;
+}
+
+.command-activity-item {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.command-activity-row {
+  display: grid;
+  width: 100%;
+  min-height: 36px;
+  grid-template-columns: 24px 38px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  padding: 5px 7px;
+  color: #3f3f46;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.command-activity-row:hover {
+  border-color: #e4e4e7;
+  background: #ffffff;
+}
+
+.command-activity-row[aria-expanded='true'] {
+  border-color: #d4d4d8;
+  border-bottom-right-radius: 0;
+  border-bottom-left-radius: 0;
+  background: #ffffff;
+}
+
+.command-activity-tool-name {
+  color: #52525b;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.command-activity-command {
+  min-width: 0;
+  overflow: hidden;
+  color: #52525b;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.command-activity-output.cmd-output-wrap {
+  border-radius: 0 0 6px 6px;
+}
+
+@media (max-width: 520px) {
+  .command-activity-composition {
+    display: none;
+  }
+
+  .command-activity-row {
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+  }
+
+  .command-activity-tool-name {
+    display: none;
+  }
+
+  .command-activity-status {
+    max-width: 52px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
 }
 
 .cmd-row {

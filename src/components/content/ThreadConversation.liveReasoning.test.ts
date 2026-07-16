@@ -6,9 +6,14 @@ describe('ThreadConversation live reasoning contract', () => {
 
   it('renders live reasoning through the escaped markdown renderer', () => {
     expect(source).toMatch(
-      /class="live-overlay-reasoning"[\s\S]*v-html="renderMarkdownBlocksAsHtml\(liveOverlay\.reasoningText\)"/u,
+      /class="live-overlay-reasoning"[\s\S]*v-html="renderMarkdownBlocksAsHtml\(localizedLiveReasoningText\)"/u,
     )
     expect(source).not.toContain('{{ liveOverlay.reasoningText }}')
+  })
+
+  it('localizes live activity labels and reasoning only at render time', () => {
+    expect(source).toContain('localizeLiveActivityLabel(props.liveOverlay?.activityLabel ??')
+    expect(source).toContain('localizeLiveReasoningText(props.liveOverlay?.reasoningText ??')
   })
 
   it('routes desktop-local images through the active thread and device', () => {
