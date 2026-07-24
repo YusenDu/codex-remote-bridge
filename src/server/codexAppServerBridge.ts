@@ -6646,7 +6646,18 @@ export async function canonicalizeThreadListResponseForRead(
   }
 }
 
-async function readWorkspaceRootsState(): Promise<WorkspaceRootsState> {
+const DEVICE_WORKSPACE_ROOTS_STATE_KEY = 'codex-web-workspace-roots-by-device'
+
+function readWorkspaceRootsPayload(
+  payload: Record<string, unknown>,
+  deviceId?: string,
+): Record<string, unknown> {
+  if (!deviceId) return payload
+  const byDevice = asRecord(payload[DEVICE_WORKSPACE_ROOTS_STATE_KEY])
+  return asRecord(byDevice?.[deviceId]) ?? {}
+}
+
+export async function readWorkspaceRootsState(deviceId?: string): Promise<WorkspaceRootsState> {
   const statePath = getCodexGlobalStatePath()
   let payload: Record<string, unknown> = {}
 
@@ -6658,16 +6669,21 @@ async function readWorkspaceRootsState(): Promise<WorkspaceRootsState> {
     payload = {}
   }
 
+  const workspacePayload = readWorkspaceRootsPayload(payload, deviceId)
+
   return await canonicalizeWorkspaceRootsState({
-    order: normalizeStringArray(payload['electron-saved-workspace-roots']),
-    labels: normalizeStringRecord(payload['electron-workspace-root-labels']),
-    active: normalizeStringArray(payload['active-workspace-roots']),
-    projectOrder: normalizeStringArray(payload['project-order']),
-    remoteProjects: normalizeRemoteProjects(payload['remote-projects']),
+    order: normalizeStringArray(workspacePayload['electron-saved-workspace-roots'] ?? workspacePayload.order),
+    labels: normalizeStringRecord(workspacePayload['electron-workspace-root-labels'] ?? workspacePayload.labels),
+    active: normalizeStringArray(workspacePayload['active-workspace-roots'] ?? workspacePayload.active),
+    projectOrder: normalizeStringArray(workspacePayload['project-order'] ?? workspacePayload.projectOrder),
+    remoteProjects: normalizeRemoteProjects(workspacePayload['remote-projects'] ?? workspacePayload.remoteProjects),
   })
 }
 
-export async function writeWorkspaceRootsState(nextState: WorkspaceRootsState): Promise<void> {
+export async function writeWorkspaceRootsState(
+  nextState: WorkspaceRootsState,
+  deviceId?: string,
+): Promise<void> {
   const state = await canonicalizeWorkspaceRootsState(nextState)
   const statePath = getCodexGlobalStatePath()
   let payload: Record<string, unknown> = {}
@@ -6678,10 +6694,22 @@ export async function writeWorkspaceRootsState(nextState: WorkspaceRootsState): 
     payload = {}
   }
 
-  payload['electron-saved-workspace-roots'] = normalizeStringArray(state.order)
-  payload['electron-workspace-root-labels'] = normalizeStringRecord(state.labels)
-  payload['active-workspace-roots'] = normalizeStringArray(state.active)
-  payload['project-order'] = normalizeStringArray(state.projectOrder)
+  if (deviceId) {
+    const byDevice = { ...(asRecord(payload[DEVICE_WORKSPACE_ROOTS_STATE_KEY]) ?? {}) }
+    byDevice[deviceId] = {
+      order: normalizeStringArray(state.order),
+      labels: normalizeStringRecord(state.labels),
+      active: normalizeStringArray(state.active),
+      projectOrder: normalizeStringArray(state.projectOrder),
+      remoteProjects: normalizeRemoteProjects(state.remoteProjects),
+    }
+    payload[DEVICE_WORKSPACE_ROOTS_STATE_KEY] = byDevice
+  } else {
+    payload['electron-saved-workspace-roots'] = normalizeStringArray(state.order)
+    payload['electron-workspace-root-labels'] = normalizeStringRecord(state.labels)
+    payload['active-workspace-roots'] = normalizeStringArray(state.active)
+    payload['project-order'] = normalizeStringArray(state.projectOrder)
+  }
 
   await writeFile(statePath, JSON.stringify(payload), 'utf8')
 }
@@ -6703,10 +6731,11 @@ function prependUniqueString(value: string, items: string[]): string[] {
 
 async function updateWorkspaceRootsState(
   updater: (existingState: WorkspaceRootsState) => WorkspaceRootsState,
+  deviceId?: string,
 ): Promise<void> {
   await queueWorkspaceRootsMutation(async () => {
-    const existingState = await readWorkspaceRootsState()
-    await writeWorkspaceRootsState(updater(existingState))
+    const existingState = await readWorkspaceRootsState(deviceId)
+    await writeWorkspaceRootsState(updater(existingState), deviceId)
   })
 }
 
@@ -9523,7 +9552,14 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
       }
 
       if (req.method === 'GET' && url.pathname === '/codex-api/workspace-roots-state') {
-        const state = await readWorkspaceRootsState()
+        let requestedDeviceId: string | undefined
+        try {
+          requestedDeviceId = readDesktopAgentDeviceIdFromUrl(url)
+        } catch (error) {
+          setJson(res, 400, { error: getErrorMessage(error, 'Invalid deviceId') })
+          return
+        }
+        const state = await readWorkspaceRootsState(requestedDeviceId)
         setJson(res, 200, { data: state })
         return
       }
@@ -10140,6 +10176,13 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
 
       if (req.method === 'PUT' && url.pathname === '/codex-api/workspace-roots-state') {
+        let requestedDeviceId: string | undefined
+        try {
+          requestedDeviceId = readDesktopAgentDeviceIdFromUrl(url)
+        } catch (error) {
+          setJson(res, 400, { error: getErrorMessage(error, 'Invalid deviceId') })
+          return
+        }
         const payload = await readJsonBody(req)
         const record = asRecord(payload)
         if (!record) {
@@ -10154,7 +10197,7 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
             ? normalizeStringArray(record.projectOrder)
             : existingState.projectOrder,
           remoteProjects: existingState.remoteProjects,
-        }))
+        }), requestedDeviceId)
         setJson(res, 200, { ok: true })
         return
       }

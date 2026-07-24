@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { getGitBranchState, getProjectRootSuggestion, getWorktreeBranchOptions } from './codexGateway'
+import {
+  getGitBranchState,
+  getProjectRootSuggestion,
+  getWorkspaceRootsState,
+  getWorktreeBranchOptions,
+  setWorkspaceRootsState,
+} from './codexGateway'
 import { clearActiveDeviceId, setActiveDeviceId } from './deviceContext'
 
 class MemoryStorage {
@@ -49,5 +55,35 @@ describe('local API device routing', () => {
 
     expect(fetchMock.mock.calls.map(([input]) => new URL(String(input), 'https://example.test').searchParams.get('deviceId')))
       .toEqual(['desktop-a', 'desktop-a', 'desktop-a'])
+  })
+
+  it('scopes workspace root reads and writes to the selected device', async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL) => new Response(JSON.stringify({
+      data: {
+        order: [],
+        labels: {},
+        active: [],
+        projectOrder: [],
+        remoteProjects: [],
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    Object.defineProperty(globalThis, 'fetch', { configurable: true, value: fetchMock })
+
+    await getWorkspaceRootsState()
+    await setWorkspaceRootsState({
+      order: ['K:\\codex-mcp'],
+      labels: {},
+      active: ['K:\\codex-mcp'],
+      projectOrder: ['K:\\codex-mcp'],
+      remoteProjects: [],
+    })
+
+    expect(fetchMock.mock.calls.map(([input]) => new URL(
+      String(input),
+      'https://example.test',
+    ).searchParams.get('deviceId'))).toEqual(['desktop-a', 'desktop-a'])
   })
 })

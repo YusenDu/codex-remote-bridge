@@ -238,6 +238,51 @@ describe('writeWorkspaceRootsState', () => {
       await rm(codexHome, { recursive: true, force: true })
     }
   })
+
+  it('keeps workspace roots isolated between desktop devices', async () => {
+    const codexHome = await mkdtemp(join(tmpdir(), 'codex-home-device-workspace-roots-'))
+    process.env.CODEX_HOME = codexHome
+
+    try {
+      await writeWorkspaceRootsState({
+        order: ['K:\\codex-mcp'],
+        labels: {},
+        active: ['K:\\codex-mcp'],
+        projectOrder: ['K:\\codex-mcp'],
+        remoteProjects: [],
+      }, 'desktop-a')
+      await writeWorkspaceRootsState({
+        order: ['E:\\project-b'],
+        labels: {},
+        active: ['E:\\project-b'],
+        projectOrder: ['E:\\project-b'],
+        remoteProjects: [],
+      }, 'desktop-b')
+
+      const rawState = JSON.parse(await readFile(
+        join(codexHome, '.codex-global-state.json'),
+        'utf8',
+      )) as Record<string, unknown>
+      expect(rawState['codex-web-workspace-roots-by-device']).toEqual({
+        'desktop-a': {
+          order: ['K:\\codex-mcp'],
+          labels: {},
+          active: ['K:\\codex-mcp'],
+          projectOrder: ['K:\\codex-mcp'],
+          remoteProjects: [],
+        },
+        'desktop-b': {
+          order: ['E:\\project-b'],
+          labels: {},
+          active: ['E:\\project-b'],
+          projectOrder: ['E:\\project-b'],
+          remoteProjects: [],
+        },
+      })
+    } finally {
+      await rm(codexHome, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('canonicalizeThreadListResponseForRead', () => {

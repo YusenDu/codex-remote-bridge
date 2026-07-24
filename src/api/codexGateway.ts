@@ -59,7 +59,7 @@ import type {
   UiThreadAutomationStatus,
 } from '../types/codex'
 import { normalizePathForUi } from '../pathUtils.js'
-import { appendActiveDeviceId } from './deviceContext'
+import { appendActiveDeviceId, getActiveDeviceId } from './deviceContext'
 
 type CurrentModelConfig = {
   model: string
@@ -285,6 +285,7 @@ export type WorkspaceRootsState = {
 
 let workspaceRootsStatePromise: Promise<WorkspaceRootsState> | null = null
 let cachedWorkspaceRootsState: WorkspaceRootsState | null = null
+let cachedWorkspaceRootsDeviceId = ''
 
 export type StoredQueuedMessage = {
   id: string
@@ -2589,6 +2590,12 @@ function normalizeThreadQueueState(value: unknown): ThreadQueueState {
 }
 
 export async function getWorkspaceRootsState(): Promise<WorkspaceRootsState> {
+  const deviceId = getActiveDeviceId() ?? ''
+  if (cachedWorkspaceRootsDeviceId !== deviceId) {
+    cachedWorkspaceRootsState = null
+    workspaceRootsStatePromise = null
+    cachedWorkspaceRootsDeviceId = deviceId
+  }
   if (cachedWorkspaceRootsState) {
     return cloneWorkspaceRootsState(cachedWorkspaceRootsState)
   }
@@ -2606,7 +2613,10 @@ export async function getWorkspaceRootsState(): Promise<WorkspaceRootsState> {
 }
 
 async function fetchWorkspaceRootsState(): Promise<WorkspaceRootsState> {
-  const response = await fetch('/codex-api/workspace-roots-state')
+  const query = new URLSearchParams()
+  appendActiveDeviceId(query)
+  const suffix = query.size > 0 ? `?${query.toString()}` : ''
+  const response = await fetch(`/codex-api/workspace-roots-state${suffix}`)
   const payload = (await response.json()) as unknown
   if (!response.ok) {
     throw new Error('Failed to load workspace roots state')
@@ -3052,7 +3062,10 @@ async function readJsonResponse(response: Response): Promise<unknown> {
 }
 
 export async function setWorkspaceRootsState(nextState: WorkspaceRootsState): Promise<void> {
-  const response = await fetch('/codex-api/workspace-roots-state', {
+  const query = new URLSearchParams()
+  appendActiveDeviceId(query)
+  const suffix = query.size > 0 ? `?${query.toString()}` : ''
+  const response = await fetch(`/codex-api/workspace-roots-state${suffix}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(nextState),
@@ -3060,6 +3073,7 @@ export async function setWorkspaceRootsState(nextState: WorkspaceRootsState): Pr
   if (!response.ok) {
     throw new Error('Failed to save workspace roots state')
   }
+  cachedWorkspaceRootsDeviceId = getActiveDeviceId() ?? ''
   cachedWorkspaceRootsState = cloneWorkspaceRootsState(nextState)
 }
 
