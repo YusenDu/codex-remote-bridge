@@ -8,11 +8,13 @@ const previewState = {
   autoStart: true,
   hasToken: true,
   connectionState: '服务器：已连接',
+  desktopState: 'error',
+  desktopError: 'Codex Desktop is running without loopback CDP',
   updateStatus: {
-    currentVersion: '0.1.96',
-    latestVersion: '0.1.96',
+    currentVersion: '0.1.97',
+    latestVersion: '0.1.97',
     updateAvailable: false,
-    releaseUrl: 'https://github.com/YusenDu/codex-remote-bridge/releases/tag/v0.1.96',
+    releaseUrl: 'https://github.com/YusenDu/codex-remote-bridge/releases/tag/v0.1.97',
     publishedAt: '2026-07-14T00:00:00Z',
   },
 };
@@ -25,7 +27,7 @@ const elements = Object.fromEntries(
     'access-error', 'form', 'serverUrl', 'webUrl', 'deviceId', 'deviceName', 'token',
     'autoStart', 'settings-error', 'save', 'cancel', 'window-minimize', 'window-maximize',
     'window-close', 'window-titlebar', 'app-version', 'update-current-version',
-    'update-status', 'check-update', 'open-update',
+    'update-status', 'check-update', 'open-update', 'restart-codex',
   ].map((id) => [id, document.getElementById(id)]),
 );
 
@@ -44,7 +46,11 @@ async function invoke(command, args) {
 
   if (command === 'get_config') return { ...previewState };
   if (command === 'get_status') {
-    return { connectionState: previewState.connectionState, desktopState: 'ready' };
+    return {
+      connectionState: previewState.connectionState,
+      desktopState: previewState.desktopState,
+      desktop: { error: previewState.desktopError },
+    };
   }
   if (command === 'get_mobile_access') {
     return {
@@ -55,11 +61,13 @@ async function invoke(command, args) {
       hasToken: true,
       deviceName: previewState.deviceName,
       connectionState: previewState.connectionState,
-      desktopState: 'ready',
+      desktopState: previewState.desktopState,
+      desktopError: previewState.desktopError,
     };
   }
-  if (command === 'get_app_version') return '0.1.96';
+  if (command === 'get_app_version') return '0.1.97';
   if (command === 'check_for_update') return { ...previewState.updateStatus };
+  if (command === 'restart_codex_desktop') return null;
   if (command === 'open_update_release') return null;
   if (command === 'save_config') {
     Object.assign(previewState, args.input, { hasToken: true, connectionState: '服务器：已连接' });
@@ -95,7 +103,7 @@ function readiness(value) {
     return { state: 'server-offline', text: '云端服务未连接' };
   }
   if (value.desktopState !== 'ready') {
-    return { state: 'desktop-unavailable', text: '云端已连接，等待 Codex Desktop' };
+    return { state: 'desktop-unavailable', text: '云端已连接，需要连接 Codex Desktop' };
   }
   return { state: 'ready', text: '已连接，可以访问' };
 }
@@ -110,6 +118,9 @@ function renderAccess(value) {
   elements['qr-code'].innerHTML = value.qrSvg;
   elements['copy-url'].disabled = !value.accessUrl;
   elements['open-web'].disabled = !value.configured || !value.accessUrl;
+  elements['restart-codex'].hidden = status.state !== 'desktop-unavailable';
+  elements['restart-codex'].disabled = false;
+  elements['restart-codex'].textContent = '重启并连接 Codex Desktop';
   elements['access-note'].textContent = value.isPublic
     ? '可通过任意网络访问'
     : '本机预览地址，手机访问需配置公网网页地址';
@@ -181,7 +192,26 @@ async function refreshStatus() {
     ...currentAccess,
     connectionState: status.connectionState,
     desktopState: status.desktopState,
+    desktopError: status.desktop?.error || null,
   });
+}
+
+async function restartCodexDesktop() {
+  const confirmed = window.confirm(
+    '这会关闭并重新打开 Codex Desktop，以启用仅限本机访问的连接。是否继续？',
+  );
+  if (!confirmed) return;
+  elements['restart-codex'].disabled = true;
+  elements['restart-codex'].textContent = '正在重新连接...';
+  elements['access-error'].textContent = '';
+  try {
+    await invoke('restart_codex_desktop');
+    await loadAccess();
+  } catch (reason) {
+    elements['access-error'].textContent = `Codex Desktop 连接失败：${String(reason)}`;
+  } finally {
+    elements['restart-codex'].disabled = false;
+  }
 }
 
 async function copyAccessUrl() {
@@ -214,6 +244,7 @@ elements['open-settings'].addEventListener('click', async () => {
 elements['back-to-access'].addEventListener('click', () => showView('access'));
 elements['copy-url'].addEventListener('click', copyAccessUrl);
 elements['open-web'].addEventListener('click', () => invoke('open_mobile_access'));
+elements['restart-codex'].addEventListener('click', restartCodexDesktop);
 elements['check-update'].addEventListener('click', () => checkForUpdates());
 elements['open-update'].addEventListener('click', () => openAvailableUpdate());
 elements.cancel.addEventListener('click', () => invoke('hide_settings'));

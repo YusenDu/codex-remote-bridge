@@ -6,12 +6,14 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::{
     collections::HashMap,
-    process::Command,
+    net::TcpListener,
+    process::{Command, Stdio},
     sync::{
         atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
-    time::Duration,
+    thread,
+    time::{Duration, Instant},
 };
 use tokio::sync::{broadcast, mpsc, oneshot, Mutex, RwLock};
 use tokio_tungstenite::{
@@ -58,6 +60,20 @@ struct RendererTarget {
     process_id: u32,
     app_version: Option<String>,
     web_socket_debugger_url: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CodexDesktopAvailability {
+    NotRunning,
+    RestartRequired,
+    Ready,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CodexRestartPlan {
+    root_process_id: u32,
+    executable_path: String,
+    arguments: [String; 2],
 }
 
 struct Session {
@@ -216,6 +232,34 @@ impl DesktopBridge {
         evaluate(&session.connection, &expression, Duration::from_secs(35)).await
     }
 
+    pub async fn restart_codex_desktop(&self) -> Result<()> {
+        {
+            let mut guard = self.inner.session.lock().await;
+            *guard = None;
+        }
+        {
+            let mut status = self.inner.status.write().await;
+            status.state = "connecting".into();
+            status.error = None;
+        }
+        tauri::async_runtime::spawn_blocking(restart_official_codex_with_cdp)
+            .await
+            .map_err(|error| anyhow!("Codex Desktop restart task failed: {error}"))??;
+
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+        let mut last_error = None;
+        while tokio::time::Instant::now() < deadline {
+            match self.connect().await {
+                Ok(()) => return Ok(()),
+                Err(error) => last_error = Some(error),
+            }
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        let error = last_error.unwrap_or_else(|| anyhow!("Codex Desktop CDP startup timed out"));
+        self.set_error(error.to_string()).await;
+        Err(error)
+    }
+
     async fn is_connected(&self) -> bool {
         self.inner
             .session
@@ -366,6 +410,7 @@ async fn discover_renderer() -> Result<RendererTarget> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(3))
         .build()?;
+    let availability = codex_desktop_availability(&processes);
     let mut last_error = None;
     for process in processes.into_iter().filter(is_official_codex_process) {
         let Some(port) = parse_remote_debugging_port(&process.command_line) else {
@@ -392,7 +437,13 @@ async fn discover_renderer() -> Result<RendererTarget> {
             Err(error) => last_error = Some(error),
         }
     }
-    Err(last_error.unwrap_or_else(|| anyhow!("Codex Desktop renderer is unavailable")))
+    Err(last_error.unwrap_or_else(|| match availability {
+        CodexDesktopAvailability::RestartRequired => anyhow!(
+            "Codex Desktop is running without loopback CDP; restart it from Codex Bridge Agent"
+        ),
+        CodexDesktopAvailability::NotRunning => anyhow!("Codex Desktop is not running"),
+        CodexDesktopAvailability::Ready => anyhow!("Codex Desktop renderer is unavailable"),
+    }))
 }
 
 fn read_codex_processes() -> Result<Vec<CodexProcess>> {
@@ -444,6 +495,94 @@ fn is_official_codex_process(process: &CodexProcess) -> bool {
         .replace('/', "\\")
         .to_ascii_lowercase();
     path.contains("\\windowsapps\\openai.codex_") && path.ends_with("\\app\\chatgpt.exe")
+}
+
+fn is_official_codex_main_process(process: &CodexProcess) -> bool {
+    is_official_codex_process(process) && !process.command_line.contains("--type=")
+}
+
+fn codex_desktop_availability(processes: &[CodexProcess]) -> CodexDesktopAvailability {
+    let official = processes
+        .iter()
+        .filter(|process| is_official_codex_process(process));
+    let mut found = false;
+    for process in official {
+        found = true;
+        if parse_remote_debugging_port(&process.command_line).is_some() {
+            return CodexDesktopAvailability::Ready;
+        }
+    }
+    if found {
+        CodexDesktopAvailability::RestartRequired
+    } else {
+        CodexDesktopAvailability::NotRunning
+    }
+}
+
+fn build_codex_restart_plan(processes: &[CodexProcess], port: u16) -> Result<CodexRestartPlan> {
+    if port == 0 {
+        bail!("Codex Desktop CDP port must be non-zero");
+    }
+    let process = processes
+        .iter()
+        .find(|process| is_official_codex_main_process(process))
+        .ok_or_else(|| anyhow!("Official Codex Desktop main process was not found"))?;
+    Ok(CodexRestartPlan {
+        root_process_id: process.process_id,
+        executable_path: process.executable_path.clone(),
+        arguments: [
+            "--remote-debugging-address=127.0.0.1".into(),
+            format!("--remote-debugging-port={port}"),
+        ],
+    })
+}
+
+fn restart_official_codex_with_cdp() -> Result<()> {
+    #[cfg(windows)]
+    use std::os::windows::process::CommandExt;
+
+    let processes = read_codex_processes()?;
+    let listener =
+        TcpListener::bind(("127.0.0.1", 0)).context("Unable to reserve a loopback CDP port")?;
+    let port = listener.local_addr()?.port();
+    drop(listener);
+    let plan = build_codex_restart_plan(&processes, port)?;
+
+    let mut terminate = Command::new("taskkill.exe");
+    terminate.args(["/PID", &plan.root_process_id.to_string(), "/T", "/F"]);
+    #[cfg(windows)]
+    terminate.creation_flags(0x0800_0000);
+    let output = terminate.output().context("Unable to stop Codex Desktop")?;
+    if !output.status.success() {
+        bail!(
+            "Unable to stop Codex Desktop: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while Instant::now() < deadline {
+        let still_running = read_codex_processes()?
+            .iter()
+            .any(is_official_codex_main_process);
+        if !still_running {
+            break;
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
+
+    let mut launch = Command::new(&plan.executable_path);
+    launch
+        .args(&plan.arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    launch.creation_flags(0x0800_0000);
+    launch
+        .spawn()
+        .context("Unable to start Codex Desktop with loopback CDP")?;
+    Ok(())
 }
 
 fn parse_remote_debugging_port(command_line: &str) -> Option<u16> {
@@ -596,6 +735,54 @@ mod tests {
             Some(60100)
         );
         assert_eq!(parse_remote_debugging_port("ChatGPT.exe"), None);
+    }
+
+    #[test]
+    fn normal_official_codex_process_requires_an_explicit_restart() {
+        let processes = vec![CodexProcess {
+            process_id: 1200,
+            executable_path:
+                r"C:\Program Files\WindowsApps\OpenAI.Codex_1.2.3.0_x64__test\app\ChatGPT.exe"
+                    .into(),
+            command_line:
+                r#""C:\Program Files\WindowsApps\OpenAI.Codex_1.2.3.0_x64__test\app\ChatGPT.exe""#
+                    .into(),
+        }];
+
+        assert_eq!(
+            codex_desktop_availability(&processes),
+            CodexDesktopAvailability::RestartRequired
+        );
+    }
+
+    #[test]
+    fn restart_plan_reuses_the_official_main_process_and_loopback_cdp() {
+        let executable =
+            r"C:\Program Files\WindowsApps\OpenAI.Codex_1.2.3.0_x64__test\app\ChatGPT.exe";
+        let processes = vec![
+            CodexProcess {
+                process_id: 1200,
+                executable_path: executable.into(),
+                command_line: format!(r#""{executable}""#),
+            },
+            CodexProcess {
+                process_id: 1201,
+                executable_path: executable.into(),
+                command_line: format!(r#""{executable}" --type=renderer"#),
+            },
+        ];
+
+        let plan = build_codex_restart_plan(&processes, 9339).unwrap();
+
+        assert_eq!(plan.root_process_id, 1200);
+        assert_eq!(plan.executable_path, executable);
+        assert_eq!(
+            plan.arguments,
+            [
+                "--remote-debugging-address=127.0.0.1",
+                "--remote-debugging-port=9339"
+            ]
+        );
     }
 
     #[test]

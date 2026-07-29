@@ -181,6 +181,28 @@ button:disabled {
   box-shadow: 0 0 0 4px rgba(228, 111, 111, 0.1);
 }
 
+.desktop-connect-button {
+  min-height: 32px;
+  margin: -4px 0 14px;
+  padding: 0 13px;
+  border: 1px solid #4b5053;
+  border-radius: 6px;
+  background: #252829;
+  color: #e8eaea;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.desktop-connect-button:hover {
+  border-color: #696f73;
+  background: #2c3032;
+}
+
+.desktop-connect-button:disabled {
+  cursor: wait;
+  opacity: 0.65;
+}
+
 h1 {
   margin: 0;
   color: #f4f5f5;

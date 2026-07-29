@@ -63,6 +63,7 @@ struct MobileAccessView {
     device_name: String,
     connection_state: String,
     desktop_state: String,
+    desktop_error: Option<String>,
 }
 
 #[tauri::command]
@@ -164,6 +165,15 @@ fn get_app_version() -> &'static str {
 #[tauri::command]
 async fn check_for_update() -> Result<UpdateStatusView, String> {
     update::check_for_update(env!("CARGO_PKG_VERSION")).await
+}
+
+#[tauri::command]
+async fn restart_codex_desktop(state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .bridge
+        .restart_codex_desktop()
+        .await
+        .map_err(|error| error.to_string())
 }
 
 #[tauri::command]
@@ -434,6 +444,7 @@ fn build_mobile_access_view(
         device_name: config.device_name.clone(),
         connection_state: connection_label(agent),
         desktop_state: desktop.state.clone(),
+        desktop_error: desktop.error.clone(),
     })
 }
 
@@ -461,6 +472,7 @@ pub fn run() {
             get_mobile_access,
             get_app_version,
             check_for_update,
+            restart_codex_desktop,
             open_update_release,
             open_mobile_access,
             save_config,
@@ -634,6 +646,18 @@ mod tests {
         let script = include_str!("../../web/app.js");
         assert!(script.contains("addEventListener('contextmenu'"));
         assert!(script.contains("event.preventDefault()"));
+    }
+
+    #[test]
+    fn desktop_restart_action_is_available_when_loopback_cdp_is_missing() {
+        let html = include_str!("../../web/index.html");
+        let script = include_str!("../../web/app.js");
+        let source = include_str!("lib.rs");
+
+        assert!(html.contains("id=\"restart-codex\""));
+        assert!(script.contains("restart_codex_desktop"));
+        assert!(source.contains("async fn restart_codex_desktop"));
+        assert!(source.contains("state.bridge.restart_codex_desktop().await"));
     }
 
     #[test]
