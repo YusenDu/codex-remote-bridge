@@ -503,7 +503,7 @@ dependencies = [
 
 [[package]]
 name = "codex-bridge-agent"
-version = "0.1.97"
+version = "0.1.98"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

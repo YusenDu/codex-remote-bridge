@@ -9,8 +9,11 @@ use url::Url;
 use uuid::Uuid;
 
 const CREDENTIAL_SERVICE: &str = "Codex Bridge Agent";
-const PUBLIC_BRIDGE_URL: &str = "https://codex.ccnd.bbroot.com";
-const LEGACY_PUBLIC_BRIDGE_URL: &str = "https://codex-bridge.120.48.173.147.sslip.io";
+const PUBLIC_BRIDGE_URL: &str = "https://120.48.173.147";
+const LEGACY_PUBLIC_BRIDGE_URLS: [&str; 2] = [
+    "https://codex-bridge.120.48.173.147.sslip.io",
+    "https://codex.ccnd.bbroot.com",
+];
 const LEGACY_LOCAL_URLS: [&str; 2] = ["http://127.0.0.1:5900", "http://127.0.0.1:5912"];
 const DEVICE_ID_PREFIX: &str = "desktop-";
 
@@ -187,11 +190,13 @@ impl ConfigStore {
 
 fn migrate_legacy_urls(config: &mut AgentConfig) {
     let server_url = config.server_url.trim_end_matches('/');
-    if LEGACY_LOCAL_URLS.contains(&server_url) || server_url == LEGACY_PUBLIC_BRIDGE_URL {
+    if LEGACY_LOCAL_URLS.contains(&server_url)
+        || LEGACY_PUBLIC_BRIDGE_URLS.contains(&server_url)
+    {
         config.server_url = PUBLIC_BRIDGE_URL.to_owned();
     }
     let web_url = config.web_url.trim_end_matches('/');
-    if LEGACY_LOCAL_URLS.contains(&web_url) || web_url == LEGACY_PUBLIC_BRIDGE_URL {
+    if LEGACY_LOCAL_URLS.contains(&web_url) || LEGACY_PUBLIC_BRIDGE_URLS.contains(&web_url) {
         config.web_url = format!("{PUBLIC_BRIDGE_URL}/");
     }
 }
@@ -367,8 +372,8 @@ mod tests {
 
         migrate_legacy_urls(&mut config);
 
-        assert_eq!(config.server_url, "https://codex.ccnd.bbroot.com");
-        assert_eq!(config.web_url, "https://codex.ccnd.bbroot.com/");
+        assert_eq!(config.server_url, "https://120.48.173.147");
+        assert_eq!(config.web_url, "https://120.48.173.147/");
     }
 
     #[test]
@@ -383,8 +388,24 @@ mod tests {
 
         migrate_legacy_urls(&mut config);
 
-        assert_eq!(config.server_url, "https://codex.ccnd.bbroot.com");
-        assert_eq!(config.web_url, "https://codex.ccnd.bbroot.com/");
+        assert_eq!(config.server_url, "https://120.48.173.147");
+        assert_eq!(config.web_url, "https://120.48.173.147/");
+    }
+
+    #[test]
+    fn migrates_the_blocked_public_bridge_domain() {
+        let mut config = AgentConfig {
+            server_url: "https://codex.ccnd.bbroot.com".into(),
+            web_url: "https://codex.ccnd.bbroot.com/".into(),
+            device_id: "desktop-a".into(),
+            device_name: "Workstation".into(),
+            auto_start: true,
+        };
+
+        migrate_legacy_urls(&mut config);
+
+        assert_eq!(config.server_url, "https://120.48.173.147");
+        assert_eq!(config.web_url, "https://120.48.173.147/");
     }
 
     #[test]

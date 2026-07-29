@@ -1,8 +1,8 @@
 const PREVIEW_QR = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 29 29" shape-rendering="crispEdges" aria-hidden="true"><rect width="29" height="29" fill="#f7f8f7"/><path fill="#111314" d="M1 1h7v7H1zm2 2v3h3V3zM21 1h7v7h-7zm2 2v3h3V3zM1 21h7v7H1zm2 2v3h3v-3zM10 1h2v2h-2zm4 0h1v3h-1zm3 1h2v2h-2zm-7 4h1v3h-1zm3-1h2v2h-2zm4 1h3v1h-3zm-7 4h2v2h-2zm4-2h1v4h-1zm3 1h2v2h-2zm4 1h3v2h-3zm-18 1h2v2H3zm4-2h1v4H7zm2 5h3v2H9zm4-1h2v1h-2zm3 2h3v2h-3zm5-1h2v3h-2zm4 1h2v2h-2zM1 15h2v3H1zm4 0h2v2H5zm3 3h2v1H8zm3-1h2v3h-2zm4 2h2v2h-2zm3-1h2v2h-2zm3 1h3v1h-3zm5-1h2v3h-2zM10 22h2v2h-2zm3-3h1v5h-1zm3 3h2v2h-2zm4-1h2v3h-2zm3 2h2v2h-2zm3-1h2v2h-2zM9 26h3v2H9zm5-1h2v3h-2zm3 1h3v2h-3zm5-1h1v3h-1zm3 1h3v2h-3z"/></svg>`;
 
 const previewState = {
-  serverUrl: 'https://codex.ccnd.bbroot.com',
-  webUrl: 'https://codex.ccnd.bbroot.com/',
+  serverUrl: 'https://120.48.173.147',
+  webUrl: 'https://120.48.173.147/',
   deviceId: 'desktop-a8f12c',
   deviceName: 'DESKTOP-8928I4F',
   autoStart: true,
@@ -11,10 +11,10 @@ const previewState = {
   desktopState: 'error',
   desktopError: 'Codex Desktop is running without loopback CDP',
   updateStatus: {
-    currentVersion: '0.1.97',
-    latestVersion: '0.1.97',
+    currentVersion: '0.1.98',
+    latestVersion: '0.1.98',
     updateAvailable: false,
-    releaseUrl: 'https://github.com/YusenDu/codex-remote-bridge/releases/tag/v0.1.97',
+    releaseUrl: 'https://github.com/YusenDu/codex-remote-bridge/releases/tag/v0.1.98',
     publishedAt: '2026-07-14T00:00:00Z',
   },
 };
@@ -65,7 +65,7 @@ async function invoke(command, args) {
       desktopError: previewState.desktopError,
     };
   }
-  if (command === 'get_app_version') return '0.1.97';
+  if (command === 'get_app_version') return '0.1.98';
   if (command === 'check_for_update') return { ...previewState.updateStatus };
   if (command === 'restart_codex_desktop') return null;
   if (command === 'open_update_release') return null;
