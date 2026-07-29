@@ -380,8 +380,8 @@ fn hide_window(window: Option<&WebviewWindow>) -> Result<(), String> {
 fn default_config() -> AgentConfig {
     let device_name = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Windows PC".into());
     AgentConfig {
-        server_url: "https://codex-bridge.120.48.173.147.sslip.io".into(),
-        web_url: "https://codex-bridge.120.48.173.147.sslip.io/".into(),
+        server_url: "https://codex.ccnd.bbroot.com".into(),
+        web_url: "https://codex.ccnd.bbroot.com/".into(),
         device_id: generate_device_id(),
         device_name,
         auto_start: false,
@@ -487,11 +487,11 @@ mod tests {
 
         assert_eq!(
             config.server_url,
-            "https://codex-bridge.120.48.173.147.sslip.io"
+            "https://codex.ccnd.bbroot.com"
         );
         assert_eq!(
             config.web_url,
-            "https://codex-bridge.120.48.173.147.sslip.io/"
+            "https://codex.ccnd.bbroot.com/"
         );
         assert!(config.device_id.starts_with("desktop-"));
         assert_eq!(config.device_id.len(), 40);

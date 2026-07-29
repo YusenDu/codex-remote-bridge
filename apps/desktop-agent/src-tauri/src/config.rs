@@ -9,7 +9,8 @@ use url::Url;
 use uuid::Uuid;
 
 const CREDENTIAL_SERVICE: &str = "Codex Bridge Agent";
-const PUBLIC_BRIDGE_URL: &str = "https://codex-bridge.120.48.173.147.sslip.io";
+const PUBLIC_BRIDGE_URL: &str = "https://codex.ccnd.bbroot.com";
+const LEGACY_PUBLIC_BRIDGE_URL: &str = "https://codex-bridge.120.48.173.147.sslip.io";
 const LEGACY_LOCAL_URLS: [&str; 2] = ["http://127.0.0.1:5900", "http://127.0.0.1:5912"];
 const DEVICE_ID_PREFIX: &str = "desktop-";
 
@@ -103,7 +104,7 @@ impl ConfigStore {
         }
         let previous = persisted.config;
         let mut config = previous.clone();
-        migrate_legacy_local_urls(&mut config);
+        migrate_legacy_urls(&mut config);
         let previous_device_id = config.device_id.clone();
         if !is_generated_device_id(&config.device_id) {
             config.device_id = generate_device_id();
@@ -184,11 +185,13 @@ impl ConfigStore {
     }
 }
 
-fn migrate_legacy_local_urls(config: &mut AgentConfig) {
-    if LEGACY_LOCAL_URLS.contains(&config.server_url.trim_end_matches('/')) {
+fn migrate_legacy_urls(config: &mut AgentConfig) {
+    let server_url = config.server_url.trim_end_matches('/');
+    if LEGACY_LOCAL_URLS.contains(&server_url) || server_url == LEGACY_PUBLIC_BRIDGE_URL {
         config.server_url = PUBLIC_BRIDGE_URL.to_owned();
     }
-    if LEGACY_LOCAL_URLS.contains(&config.web_url.trim_end_matches('/')) {
+    let web_url = config.web_url.trim_end_matches('/');
+    if LEGACY_LOCAL_URLS.contains(&web_url) || web_url == LEGACY_PUBLIC_BRIDGE_URL {
         config.web_url = format!("{PUBLIC_BRIDGE_URL}/");
     }
 }
@@ -362,10 +365,42 @@ mod tests {
             auto_start: true,
         };
 
-        migrate_legacy_local_urls(&mut config);
+        migrate_legacy_urls(&mut config);
 
-        assert_eq!(config.server_url, PUBLIC_BRIDGE_URL);
-        assert_eq!(config.web_url, format!("{PUBLIC_BRIDGE_URL}/"));
+        assert_eq!(config.server_url, "https://codex.ccnd.bbroot.com");
+        assert_eq!(config.web_url, "https://codex.ccnd.bbroot.com/");
+    }
+
+    #[test]
+    fn migrates_the_previous_public_bridge_domain() {
+        let mut config = AgentConfig {
+            server_url: "https://codex-bridge.120.48.173.147.sslip.io".into(),
+            web_url: "https://codex-bridge.120.48.173.147.sslip.io/".into(),
+            device_id: "desktop-a".into(),
+            device_name: "Workstation".into(),
+            auto_start: true,
+        };
+
+        migrate_legacy_urls(&mut config);
+
+        assert_eq!(config.server_url, "https://codex.ccnd.bbroot.com");
+        assert_eq!(config.web_url, "https://codex.ccnd.bbroot.com/");
+    }
+
+    #[test]
+    fn preserves_custom_bridge_domains() {
+        let mut config = AgentConfig {
+            server_url: "https://codex.example.com".into(),
+            web_url: "https://codex.example.com/".into(),
+            device_id: "desktop-a".into(),
+            device_name: "Workstation".into(),
+            auto_start: true,
+        };
+
+        migrate_legacy_urls(&mut config);
+
+        assert_eq!(config.server_url, "https://codex.example.com");
+        assert_eq!(config.web_url, "https://codex.example.com/");
     }
 
     #[test]

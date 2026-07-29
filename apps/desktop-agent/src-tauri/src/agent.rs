@@ -517,10 +517,10 @@ mod tests {
     #[test]
     fn public_bridge_server_uses_wss() {
         assert_eq!(
-            agent_websocket_url("https://codex-bridge.120.48.173.147.sslip.io")
+            agent_websocket_url("https://codex.ccnd.bbroot.com")
                 .unwrap()
                 .as_str(),
-            "wss://codex-bridge.120.48.173.147.sslip.io/codex-api/agent/ws"
+            "wss://codex.ccnd.bbroot.com/codex-api/agent/ws"
         );
     }
 
