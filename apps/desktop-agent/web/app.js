@@ -11,10 +11,10 @@ const previewState = {
   desktopState: 'error',
   desktopError: 'Codex Desktop is running without loopback CDP',
   updateStatus: {
-    currentVersion: '0.1.99',
-    latestVersion: '0.1.99',
+    currentVersion: '0.1.100',
+    latestVersion: '0.1.100',
     updateAvailable: false,
-    releaseUrl: 'https://github.com/YusenDu/codex-remote-bridge/releases/tag/v0.1.99',
+    releaseUrl: 'https://github.com/YusenDu/codex-remote-bridge/releases/tag/v0.1.100',
     publishedAt: '2026-07-14T00:00:00Z',
   },
 };
@@ -65,7 +65,7 @@ async function invoke(command, args) {
       desktopError: previewState.desktopError,
     };
   }
-  if (command === 'get_app_version') return '0.1.99';
+  if (command === 'get_app_version') return '0.1.100';
   if (command === 'check_for_update') return { ...previewState.updateStatus };
   if (command === 'restart_codex_desktop') return null;
   if (command === 'open_update_release') return null;
