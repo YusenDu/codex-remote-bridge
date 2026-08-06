@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   appendActiveDeviceId,
   clearActiveDeviceId,
@@ -18,6 +18,10 @@ function memoryStorage(): DeviceStorage {
 }
 
 describe('device context', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('accepts only relay-safe machine codes', () => {
     expect(normalizeDeviceId(' desktop-a:b ')).toBe('desktop-a:b')
     expect(normalizeDeviceId('../desktop-a')).toBeNull()
@@ -52,5 +56,20 @@ describe('device context', () => {
 
     expect(query.get('deviceId')).toBe('desktop-a')
     expect(query.get('cwd')).toBe('K:\\project')
+  })
+
+  it('uses the device route as the source of truth before local storage', () => {
+    const storage = memoryStorage()
+    setActiveDeviceId('desktop-stale', storage)
+    vi.stubGlobal('window', {
+      location: { hash: '#/device/desktop-route/thread/thread-1' },
+      localStorage: storage,
+    })
+
+    expect(getActiveDeviceId(storage)).toBe('desktop-route')
+
+    const query = new URLSearchParams()
+    appendActiveDeviceId(query, storage)
+    expect(query.get('deviceId')).toBe('desktop-route')
   })
 })

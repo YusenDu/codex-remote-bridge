@@ -15,7 +15,22 @@ const router = createRouter({
     },
     {
       path: '/device/:deviceId',
-      name: 'device',
+      name: 'device-home',
+      component: EmptyRouteView,
+    },
+    {
+      path: '/device/:deviceId/thread/:threadId',
+      name: 'device-thread',
+      component: EmptyRouteView,
+    },
+    {
+      path: '/device/:deviceId/skills',
+      name: 'device-skills',
+      component: EmptyRouteView,
+    },
+    {
+      path: '/device/:deviceId/automations',
+      name: 'device-automations',
       component: EmptyRouteView,
     },
     {
@@ -42,9 +57,10 @@ const router = createRouter({
 })
 
 router.beforeEach((to) => {
-  if (to.name !== 'device') return true
-  setActiveDeviceId(to.params.deviceId)
-  return { name: 'home' }
+  if (to.params.deviceId !== undefined) {
+    setActiveDeviceId(to.params.deviceId)
+  }
+  return true
 })
 
 export default router

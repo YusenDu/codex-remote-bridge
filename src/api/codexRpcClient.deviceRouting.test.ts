@@ -50,7 +50,11 @@ describe('Codex RPC device routing', () => {
       configurable: true,
       value: {
         localStorage,
-        location: { protocol: 'https:', host: 'codex.example.com' },
+        location: {
+          protocol: 'https:',
+          host: 'codex.example.com',
+          hash: '#/device/desktop-route/thread/thread-1',
+        },
         setTimeout,
         clearTimeout,
       },
@@ -84,7 +88,7 @@ describe('Codex RPC device routing', () => {
     expect(JSON.parse(String(request?.[1]?.body))).toEqual({
       method: 'thread/list',
       params: { limit: 10 },
-      deviceId: 'desktop-a',
+      deviceId: 'desktop-route',
     })
   })
 
@@ -93,7 +97,7 @@ describe('Codex RPC device routing', () => {
 
     expect(FakeWebSocket.instances).toHaveLength(1)
     expect(FakeWebSocket.instances[0]?.url).toBe(
-      'wss://codex.example.com/codex-api/ws?deviceId=desktop-a',
+      'wss://codex.example.com/codex-api/ws?deviceId=desktop-route',
     )
     dispose()
   })

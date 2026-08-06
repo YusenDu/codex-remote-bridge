@@ -53,7 +53,7 @@
             class="sidebar-skills-link"
             :class="{ 'is-active': isSkillsRoute }"
             type="button"
-            @click="router.push({ name: 'skills' }); isMobile && setSidebarCollapsed(true)"
+            @click="router.push(appRoute('skills')); isMobile && setSidebarCollapsed(true)"
           >
             <span class="sidebar-skills-link-icon" aria-hidden="true">
               <IconTablerBolt />
@@ -69,7 +69,7 @@
             class="sidebar-skills-link"
             :class="{ 'is-active': isAutomationsRoute }"
             type="button"
-            @click="router.push({ name: 'automations' }); isMobile && setSidebarCollapsed(true)"
+            @click="router.push(appRoute('automations')); isMobile && setSidebarCollapsed(true)"
           >
             <span class="sidebar-skills-link-icon sidebar-automations-link-icon" aria-hidden="true">
               <IconTablerBolt />
@@ -573,7 +573,7 @@
               :busy="isSwitchingThreadBranch"
               :error="threadBranchError"
               :review-open="isReviewPaneOpen"
-              :show-review="route.name === 'thread' && selectedThreadId.length > 0"
+              :show-review="isThreadRoute && selectedThreadId.length > 0"
               @toggle-review="onToggleContentHeaderReview"
               @checkout-branch="onCheckoutContentHeaderBranch"
               @reset-branch-to-commit="onResetContentHeaderBranchToCommit"
@@ -1169,7 +1169,8 @@
 
 <script setup lang="ts">
 import { computed, defineAsyncComponent, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute, useRouter, type LocationQueryRaw } from 'vue-router'
+import { buildAppRouteLocation, getAppRouteView, type AppRouteView } from './router/appRouteContext'
 import DesktopLayout from './components/layout/DesktopLayout.vue'
 import SidebarThreadTree from './components/sidebar/SidebarThreadTree.vue'
 import ContentHeader from './components/content/ContentHeader.vue'
@@ -1476,6 +1477,14 @@ const {
 
 const route = useRoute()
 const router = useRouter()
+
+function appRoute(
+  view: AppRouteView,
+  params: Record<string, string> = {},
+  query?: LocationQueryRaw,
+) {
+  return buildAppRouteLocation(route, view, params, query)
+}
 const { isMobile } = useMobile()
 type SidebarThreadTreeExposed = {
   openAutomationEditorFromPanel: (payload: AutomationEditRequest) => void
@@ -1730,10 +1739,16 @@ const routeThreadId = computed(() => {
   const rawThreadId = route.params.threadId
   return typeof rawThreadId === 'string' ? rawThreadId : ''
 })
+const routeDeviceId = computed(() => {
+  const rawDeviceId = route.params.deviceId
+  return typeof rawDeviceId === 'string' ? rawDeviceId : ''
+})
 
-const isHomeRoute = computed(() => route.name === 'home')
-const isSkillsRoute = computed(() => route.name === 'skills')
-const isAutomationsRoute = computed(() => route.name === 'automations')
+const currentAppRouteView = computed(() => getAppRouteView(route.name))
+const isHomeRoute = computed(() => currentAppRouteView.value === 'home')
+const isThreadRoute = computed(() => currentAppRouteView.value === 'thread')
+const isSkillsRoute = computed(() => currentAppRouteView.value === 'skills')
+const isAutomationsRoute = computed(() => currentAppRouteView.value === 'automations')
 const routeAutomationId = computed(() => {
   const raw = route.query.automationId
   return typeof raw === 'string' ? raw : ''
@@ -1783,11 +1798,11 @@ const composerCwd = computed(() => {
 const canShowTerminalToggle = computed(() => (
   isThreadTerminalAvailable.value && (
     (isHomeRoute.value && composerCwd.value.length > 0) ||
-    (route.name === 'thread' && selectedThreadId.value.length > 0)
+    (isThreadRoute.value && selectedThreadId.value.length > 0)
   )
 ))
 const canShowContentHeaderBranchDropdown = computed(() => (
-  (route.name === 'thread' && selectedThreadId.value.length > 0) ||
+  (isThreadRoute.value && selectedThreadId.value.length > 0) ||
   (isHomeRoute.value && isNewThreadCwdGitRepo.value)
 ))
 const isComposerTerminalOpen = computed(() => (
@@ -1848,7 +1863,7 @@ function dismissFirstLaunchPluginsCard(): void {
 
 function onOpenPluginsHomeCard(): void {
   dismissFirstLaunchPluginsCard()
-  void router.push({ name: 'skills', query: { tab: 'plugins' } })
+  void router.push(appRoute('skills', {}, { tab: 'plugins' }))
 }
 
 const threadContextBadgeState = computed(() => {
@@ -2418,15 +2433,15 @@ function onSidebarSearchKeydown(event: KeyboardEvent): void {
 
 function onSelectThread(threadId: string): void {
   if (!threadId) return
-  if (route.name === 'thread' && routeThreadId.value === threadId) return
-  void router.push({ name: 'thread', params: { threadId } })
+  if (isThreadRoute.value && routeThreadId.value === threadId) return
+  void router.push(appRoute('thread', { threadId }))
   if (isMobile.value) setSidebarCollapsed(true)
 }
 
 function onSelectAutomationInPanel(automationId: string): void {
-  if (route.name !== 'automations') return
+  if (!isAutomationsRoute.value) return
   if (routeAutomationId.value === automationId) return
-  void router.replace({ name: 'automations', query: automationId ? { automationId } : {} })
+  void router.replace(appRoute('automations', {}, automationId ? { automationId } : {}))
 }
 
 async function onEditAutomationFromPanel(payload: AutomationEditRequest): Promise<void> {
@@ -2446,7 +2461,7 @@ async function onCreateAutomationFromPanel(): Promise<void> {
 }
 
 function onAutomationsChanged(): void {
-  if (route.name !== 'automations') return
+  if (!isAutomationsRoute.value) return
   void automationsPanelRef.value?.loadAutomations()
 }
 
@@ -2747,9 +2762,9 @@ async function onForkThread(threadId: string): Promise<void> {
   const nextThreadId = await forkThreadById(threadId)
   if (!nextThreadId) return
   if (!isHomeRoute.value) {
-    await router.push({ name: 'thread', params: { threadId: nextThreadId } })
+    await router.push(appRoute('thread', { threadId: nextThreadId }))
   } else {
-    await router.replace({ name: 'thread', params: { threadId: nextThreadId } })
+    await router.replace(appRoute('thread', { threadId: nextThreadId }))
   }
   if (isMobile.value) setSidebarCollapsed(true)
 }
@@ -2776,7 +2791,7 @@ function onStartNewThread(projectName: string): void {
   }
   if (isMobile.value) setSidebarCollapsed(true)
   if (isHomeRoute.value) return
-  void router.push({ name: 'home' })
+  void router.push(appRoute('home'))
 }
 
 function onBrowseThreadFiles(threadId: string): void {
@@ -2959,7 +2974,7 @@ async function onCreateProjectWorktree(projectName: string): Promise<void> {
     await loadWorkspaceRootOptionsState()
     if (isMobile.value) setSidebarCollapsed(true)
     if (!isHomeRoute.value) {
-      await router.push({ name: 'home' })
+      await router.push(appRoute('home'))
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to create worktree.'
@@ -2983,7 +2998,7 @@ function onStartNewThreadFromToolbar(): void {
   newThreadRuntime.value = 'local'
   if (isMobile.value) setSidebarCollapsed(true)
   if (isHomeRoute.value) return
-  void router.push({ name: 'home' })
+  void router.push(appRoute('home'))
 }
 
 function onStartProjectlessNewChat(): void {
@@ -2991,7 +3006,7 @@ function onStartProjectlessNewChat(): void {
   newThreadRuntime.value = 'local'
   if (isMobile.value) setSidebarCollapsed(true)
   if (isHomeRoute.value) return
-  void router.push({ name: 'home' })
+  void router.push(appRoute('home'))
 }
 
 async function loadGitRepoStatus(cwdRaw: string): Promise<void> {
@@ -3068,7 +3083,7 @@ async function handleServerRequestResponse(payload: UiServerRequestReply): Promi
 async function onForkThreadFromMessage(payload: { threadId: string; turnIndex: number }): Promise<void> {
   const forkedThreadId = await forkThreadFromTurn(payload.threadId, payload.turnIndex)
   if (!forkedThreadId) return
-  await router.push({ name: 'thread', params: { threadId: forkedThreadId } })
+  await router.push(appRoute('thread', { threadId: forkedThreadId }))
   if (selectedThreadId.value !== forkedThreadId) {
     await selectThread(forkedThreadId)
   }
@@ -3104,7 +3119,7 @@ function onWindowKeyDown(event: KeyboardEvent): void {
     setSidebarCollapsed(!isSidebarCollapsed.value)
     return
   }
-  if (key === 'j' && route.name === 'thread' && selectedThreadId.value) {
+  if (key === 'j' && isThreadRoute.value && selectedThreadId.value) {
     event.preventDefault()
     toggleComposerTerminal()
     return
@@ -3375,7 +3390,7 @@ function onWindowPageShow(event: PageTransitionEvent): void {
 }
 
 function onWindowFocus(): void {
-  if (route.name === 'home') {
+  if (isHomeRoute.value) {
     void loadWorkspaceRootOptionsState()
   }
   maybeSyncAfterMobileResume()
@@ -3484,7 +3499,7 @@ function onSelectNewWorktreeBranch(branch: string): void {
 function canLoadBranchStateForCwd(cwd: string): boolean {
   const currentCwd = composerCwd.value.trim()
   if (!cwd || currentCwd !== cwd) return false
-  return route.name === 'thread' || (route.name === 'home' && isNewThreadCwdGitRepo.value)
+  return isThreadRoute.value || (isHomeRoute.value && isNewThreadCwdGitRepo.value)
 }
 
 function resetThreadBranchState(): void {
@@ -3990,7 +4005,7 @@ async function applyLaunchProjectPathFromUrl(): Promise<boolean> {
     if (!normalizedPath) return false
     newThreadCwd.value = normalizedPath
     pinProjectToTop(getProjectOrderNameForPath(normalizedPath))
-    await router.replace({ name: 'home' })
+    await router.replace(appRoute('home'))
     await loadWorkspaceRootOptionsState()
     const nextUrl = new URL(window.location.href)
     nextUrl.searchParams.delete('openProjectPath')
@@ -4615,14 +4630,14 @@ function onSelectCollaborationMode(mode: 'default' | 'plan'): void {
 async function initialize(): Promise<void> {
   await router.isReady()
 
-  if (route.name === 'thread' && routeThreadId.value) {
+  if (isThreadRoute.value && routeThreadId.value) {
     primeSelectedThread(routeThreadId.value)
-  } else if (route.name === 'home' || route.name === 'skills' || route.name === 'automations') {
+  } else if (isHomeRoute.value || isSkillsRoute.value || isAutomationsRoute.value) {
     primeSelectedThread('', { persist: false })
   }
 
   await refreshAll({
-    includeSelectedThreadMessages: route.name === 'thread',
+    includeSelectedThreadMessages: isThreadRoute.value,
   })
   void loadAccountsState({ silent: true })
   await applyLaunchProjectPathFromUrl()
@@ -4642,14 +4657,14 @@ async function syncThreadSelectionWithRoute(): Promise<void> {
     do {
       hasPendingRouteSync = false
 
-      if (route.name === 'home' || route.name === 'skills' || route.name === 'automations') {
+      if (isHomeRoute.value || isSkillsRoute.value || isAutomationsRoute.value) {
         if (selectedThreadId.value !== '') {
           await selectThread('')
         }
         continue
       }
 
-      if (route.name === 'thread') {
+      if (isThreadRoute.value) {
         const threadId = routeThreadId.value
         if (!threadId) continue
 
@@ -4674,8 +4689,9 @@ async function syncThreadSelectionWithRoute(): Promise<void> {
 watch(
   () =>
     [
-      route.name,
+      currentAppRouteView.value,
       routeThreadId.value,
+      routeDeviceId.value,
       isLoadingThreads.value,
       selectedThreadId.value,
     ] as const,
@@ -4700,9 +4716,9 @@ watch(
 )
 
 watch(
-  () => [route.name, composerCwd.value] as const,
-  ([routeName, cwd]) => {
-    if (routeName !== 'thread') return
+  () => [currentAppRouteView.value, composerCwd.value] as const,
+  ([routeView, cwd]) => {
+    if (routeView !== 'thread') return
     void loadGitRepoStatus(cwd)
   },
   { immediate: true },
@@ -4716,16 +4732,27 @@ watch(
     if (isHomeRoute.value || isSkillsRoute.value || isAutomationsRoute.value) return
 
     if (!threadId) {
-      if (route.name !== 'home') {
-        await router.replace({ name: 'home' })
+      if (!isHomeRoute.value) {
+        await router.replace(appRoute('home'))
       }
       return
     }
 
-    if (route.name === 'thread' && routeThreadId.value === threadId) return
-    await router.replace({ name: 'thread', params: { threadId } })
+    if (isThreadRoute.value && routeThreadId.value === threadId) return
+    await router.replace(appRoute('thread', { threadId }))
   },
 )
+
+watch(routeDeviceId, async (deviceId, previousDeviceId) => {
+  if (!hasInitialized.value || deviceId === previousDeviceId) return
+  if (isThreadRoute.value && routeThreadId.value) {
+    primeSelectedThread(routeThreadId.value)
+  } else {
+    primeSelectedThread('', { persist: false })
+  }
+  await refreshAll({ includeSelectedThreadMessages: isThreadRoute.value })
+  await syncThreadSelectionWithRoute()
+})
 
 watch(
   () => newThreadFolderOptions.value,
@@ -4754,9 +4781,9 @@ watch(
 const selectedPlanProgress = computed(() => selectLatestPlanProgress(messages.value))
 
 watch(
-  () => [route.name, newThreadCwd.value] as const,
-  ([routeName, cwd]) => {
-    if (routeName !== 'home') return
+  () => [currentAppRouteView.value, newThreadCwd.value] as const,
+  ([routeView, cwd]) => {
+    if (routeView !== 'home') return
     void loadGitRepoStatus(cwd)
   },
   { immediate: true },
@@ -4803,12 +4830,12 @@ watch(
 )
 
 watch(
-  () => route.name,
-  (name) => {
-    if (name !== 'home') {
+  currentAppRouteView,
+  (view) => {
+    if (view !== 'home') {
       worktreeInitStatus.value = { phase: 'idle', title: '', message: '' }
     }
-    if (name !== 'thread') {
+    if (view !== 'thread') {
       isReviewPaneOpen.value = false
     }
   },
@@ -4822,9 +4849,9 @@ watch(
 )
 
 watch(
-  () => [route.name, composerCwd.value, isNewThreadCwdGitRepo.value] as const,
-  ([routeName, cwd, isNewThreadGitRepo]) => {
-    const shouldLoadBranches = routeName === 'thread' || (routeName === 'home' && isNewThreadGitRepo)
+  () => [currentAppRouteView.value, composerCwd.value, isNewThreadCwdGitRepo.value] as const,
+  ([routeView, cwd, isNewThreadGitRepo]) => {
+    const shouldLoadBranches = routeView === 'thread' || (routeView === 'home' && isNewThreadGitRepo)
     if (!shouldLoadBranches) {
       resetThreadBranchState()
       return
@@ -4889,7 +4916,7 @@ async function submitFirstMessageForNewThread(
     }
     const threadId = await sendMessageToNewThread(text, targetCwd, imageUrls, skills, fileAttachments)
     if (!threadId) return
-    await router.replace({ name: 'thread', params: { threadId } })
+    await router.replace(appRoute('thread', { threadId }))
     scheduleMobileConversationJumpToLatest()
   } catch {
     // Error is already reflected in state.
@@ -4926,7 +4953,7 @@ async function onTryDirectoryItem(payload: DirectoryTryItemPayload): Promise<voi
     const targetCwd = directoryCwd.value.trim() || composerCwd.value.trim()
     const threadId = await sendMessageToNewThread(text, targetCwd, [], skills, [])
     if (!threadId) return
-    await router.replace({ name: 'thread', params: { threadId } })
+    await router.replace(appRoute('thread', { threadId }))
     scheduleMobileConversationJumpToLatest()
   } catch {
     // Error is already reflected in shared thread state.

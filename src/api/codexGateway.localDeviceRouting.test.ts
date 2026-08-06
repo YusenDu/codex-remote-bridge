@@ -22,7 +22,10 @@ describe('local API device routing', () => {
   beforeEach(() => {
     Object.defineProperty(globalThis, 'window', {
       configurable: true,
-      value: { localStorage: new MemoryStorage() },
+      value: {
+        localStorage: new MemoryStorage(),
+        location: { hash: '#/device/desktop-route' },
+      },
     })
     setActiveDeviceId('desktop-a')
   })
@@ -54,7 +57,7 @@ describe('local API device routing', () => {
     await getGitBranchState('K:\\project')
 
     expect(fetchMock.mock.calls.map(([input]) => new URL(String(input), 'https://example.test').searchParams.get('deviceId')))
-      .toEqual(['desktop-a', 'desktop-a', 'desktop-a'])
+      .toEqual(['desktop-route', 'desktop-route', 'desktop-route'])
   })
 
   it('scopes workspace root reads and writes to the selected device', async () => {
@@ -84,6 +87,6 @@ describe('local API device routing', () => {
     expect(fetchMock.mock.calls.map(([input]) => new URL(
       String(input),
       'https://example.test',
-    ).searchParams.get('deviceId'))).toEqual(['desktop-a', 'desktop-a'])
+    ).searchParams.get('deviceId'))).toEqual(['desktop-route', 'desktop-route'])
   })
 })

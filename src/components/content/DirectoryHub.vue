@@ -660,6 +660,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { buildAppRouteLocation, getAppRouteView } from '../../router/appRouteContext'
 import {
   getDirectoryComposioStatus,
   getMethodCatalog,
@@ -1649,13 +1650,13 @@ function toggleMcpExpanded(name: string): void {
 }
 
 watch(activeTab, (tab) => {
-  if (route.name === 'skills' && route.query.tab !== tab) {
-    void router.replace({ name: 'skills', query: { ...route.query, tab } })
+  if (getAppRouteView(route.name) === 'skills' && route.query.tab !== tab) {
+    void router.replace(buildAppRouteLocation(route, 'skills', {}, { ...route.query, tab }))
   }
   refreshActiveTab()
 })
 watch(() => route.query.tab, () => {
-  if (route.name !== 'skills') return
+  if (getAppRouteView(route.name) !== 'skills') return
   const tab = tabFromRoute()
   if (activeTab.value !== tab) activeTab.value = tab
 })

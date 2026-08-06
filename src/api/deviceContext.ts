@@ -19,7 +19,21 @@ export function normalizeDeviceId(value: unknown): string | null {
   return normalized
 }
 
+export function getDeviceIdFromHash(hash?: string): string | null {
+  const rawHash = hash ?? (typeof window === 'undefined' ? '' : window.location?.hash ?? '')
+  const routePath = rawHash.replace(/^#/u, '').split('?')[0] ?? ''
+  const segments = routePath.split('/').filter(Boolean)
+  if (segments[0] !== 'device' || !segments[1]) return null
+  try {
+    return normalizeDeviceId(decodeURIComponent(segments[1]))
+  } catch {
+    return null
+  }
+}
+
 export function getActiveDeviceId(storage: DeviceStorage | null = browserStorage()): string | null {
+  const routeDeviceId = getDeviceIdFromHash()
+  if (routeDeviceId) return routeDeviceId
   if (!storage) return fallbackActiveDeviceId
   try {
     return normalizeDeviceId(storage.getItem(ACTIVE_DEVICE_KEY))
