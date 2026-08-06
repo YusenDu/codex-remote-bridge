@@ -341,7 +341,7 @@ function validateHandshake(value: unknown): asserts value is RendererHandshake {
   const capabilities = Array.isArray(record.capabilities)
     ? record.capabilities.filter((entry): entry is string => typeof entry === 'string')
     : []
-  for (const capability of ['rpc', 'turn/start', 'turn/interrupt', 'events']) {
+  for (const capability of ['rpc', 'turn/start', 'turn/interrupt', 'events', 'server-requests']) {
     if (!capabilities.includes(capability)) {
       throw new Error(`Codex Desktop CDP adapter is missing capability ${capability}.`)
     }

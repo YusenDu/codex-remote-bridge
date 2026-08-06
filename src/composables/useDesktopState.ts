@@ -1484,6 +1484,10 @@ export function useDesktopState() {
   const threadListedByServerById = ref<Record<string, boolean>>({})
   const persistedUserMessageByThreadId = ref<Record<string, boolean>>({})
   const pendingServerRequestsByThreadId = ref<Record<string, UiServerRequest[]>>({})
+  let pendingServerRequestRevision = 0
+  let pendingServerRequestScopeGeneration = 0
+  let pendingServerRequestSnapshotSequence = 0
+  const pendingServerRequestMutationRevisionById = new Map<number, number>()
   const pendingTurnRequestByThreadId = ref<Record<string, PendingTurnRequest>>({})
   const codexRateLimit = ref<UiRateLimitSnapshot | null>(null)
   const threadTokenUsageByThreadId = ref<Record<string, UiThreadTokenUsage>>(loadThreadTokenUsageMap())
@@ -3122,6 +3126,8 @@ export function useDesktopState() {
       readString(requestParamRecord?.thread_id) ||
       readString(requestParamRecord?.conversationId) ||
       readString(requestParamRecord?.conversation_id) ||
+      readString(row.conversationId) ||
+      readString(row.conversation_id) ||
       GLOBAL_SERVER_REQUEST_SCOPE
     )
     const turnId = readString(requestParamRecord?.turnId) || readString(requestParamRecord?.turn_id)
@@ -3273,6 +3279,8 @@ export function useDesktopState() {
   }
 
   function upsertPendingServerRequest(request: UiServerRequest): void {
+    pendingServerRequestRevision += 1
+    pendingServerRequestMutationRevisionById.set(request.id, pendingServerRequestRevision)
     const threadId = request.threadId || GLOBAL_SERVER_REQUEST_SCOPE
     const current = pendingServerRequestsByThreadId.value[threadId] ?? []
     const index = current.findIndex((row) => row.id === request.id)
@@ -3291,6 +3299,8 @@ export function useDesktopState() {
   }
 
   function removePendingServerRequestById(requestId: number): void {
+    pendingServerRequestRevision += 1
+    pendingServerRequestMutationRevisionById.set(requestId, pendingServerRequestRevision)
     const next: Record<string, UiServerRequest[]> = {}
     for (const [threadId, requests] of Object.entries(pendingServerRequestsByThreadId.value)) {
       const filtered = requests.filter((request) => request.id !== requestId)
@@ -3316,6 +3326,33 @@ export function useDesktopState() {
     }
 
     pendingServerRequestsByThreadId.value = next
+    applyThreadFlags()
+  }
+
+  function reconcilePendingServerRequestSnapshot(
+    requests: UiServerRequest[],
+    snapshotRevision: number,
+  ): void {
+    const nextById = new Map(requests.map((request) => [request.id, request]))
+    const currentById = new Map<number, UiServerRequest>()
+    for (const currentRequests of Object.values(pendingServerRequestsByThreadId.value)) {
+      for (const request of currentRequests) currentById.set(request.id, request)
+    }
+
+    for (const [requestId, revision] of pendingServerRequestMutationRevisionById) {
+      if (revision <= snapshotRevision) continue
+      const current = currentById.get(requestId)
+      if (current) {
+        nextById.set(requestId, current)
+      } else {
+        nextById.delete(requestId)
+      }
+    }
+
+    replacePendingServerRequests(Array.from(nextById.values()))
+    for (const [requestId, revision] of pendingServerRequestMutationRevisionById) {
+      if (revision <= snapshotRevision) pendingServerRequestMutationRevisionById.delete(requestId)
+    }
   }
 
   function handleServerRequestNotification(notification: RpcNotification): boolean {
@@ -5752,12 +5789,19 @@ export function useDesktopState() {
   }
 
   async function loadPendingServerRequestsFromBridge(): Promise<void> {
+    const scopeGeneration = pendingServerRequestScopeGeneration
+    const snapshotRevision = pendingServerRequestRevision
+    const snapshotSequence = ++pendingServerRequestSnapshotSequence
     try {
       const rows = await getPendingServerRequests()
+      if (
+        scopeGeneration !== pendingServerRequestScopeGeneration ||
+        snapshotSequence !== pendingServerRequestSnapshotSequence
+      ) return
       const normalizedRequests = rows
         .map((row) => normalizeServerRequest(row))
         .filter((request): request is UiServerRequest => request !== null)
-      replacePendingServerRequests(normalizedRequests)
+      reconcilePendingServerRequestSnapshot(normalizedRequests, snapshotRevision)
     } catch {
       // Keep UI usable when pending request endpoint is temporarily unavailable.
     }
@@ -5786,6 +5830,12 @@ export function useDesktopState() {
     pendingThreadsRefresh = false
     pendingThreadMessageRefresh.clear()
     pendingForcedThreadMessageRefresh.clear()
+    pendingServerRequestScopeGeneration += 1
+    pendingServerRequestSnapshotSequence += 1
+    pendingServerRequestRevision = 0
+    pendingServerRequestMutationRevisionById.clear()
+    pendingServerRequestsByThreadId.value = {}
+    applyThreadFlags()
     dirtyThreadIds.clear()
     pendingTurnStartsById.clear()
     if (eventSyncTimer !== null && typeof window !== 'undefined') {

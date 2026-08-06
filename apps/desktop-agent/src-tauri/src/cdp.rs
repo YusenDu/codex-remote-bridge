@@ -637,7 +637,13 @@ fn validate_handshake(value: &Value) -> Result<()> {
         .get("capabilities")
         .and_then(Value::as_array)
         .ok_or_else(|| anyhow!("Codex Desktop CDP capabilities are missing"))?;
-    for required in ["rpc", "turn/start", "turn/interrupt", "events"] {
+    for required in [
+        "rpc",
+        "turn/start",
+        "turn/interrupt",
+        "events",
+        "server-requests",
+    ] {
         if !capabilities
             .iter()
             .any(|value| value.as_str() == Some(required))
@@ -690,34 +696,66 @@ fn renderer_bootstrap_source(binding_name: &str) -> String {
         "serverRequest/resolved",
     ])
     .unwrap();
-    format!(
-        r#"(async()=>{{
-const protocol={protocol},globalName={global_name},bindingName={binding_name},notificationMethods={methods};
+    r#"(async()=>{
+const protocol=__PROTOCOL__,globalName=__GLOBAL_NAME__,bindingName=__BINDING_NAME__,notificationMethods=__METHODS__;
 const root=globalThis.__codexRoot&&globalThis.__codexRoot._internalRoot?globalThis.__codexRoot._internalRoot.current:null;
 if(!root)throw new Error('Codex renderer React root is unavailable.');
-const isManager=v=>v&&typeof v==='object'&&['getHostId','getConversation','sendRequest','addNotificationCallback','addTurnCompletedListener','addStreamRoleStateCallback'].every(k=>typeof v[k]==='function');
+const isManager=v=>v&&typeof v==='object'&&['getHostId','getConversation','sendRequest','addApprovalRequestListener','addNotificationCallback','addTurnCompletedListener','addStreamRoleStateCallback'].every(k=>typeof v[k]==='function');
 const stack=[root],seen=new Set();let manager=null;
-while(stack.length){{const fiber=stack.pop();if(!fiber||seen.has(fiber))continue;seen.add(fiber);let hook=fiber.memoizedState;for(let i=0;hook&&i<160;i++,hook=hook.next){{const c=hook.memoizedState;if(!isManager(c))continue;let host=null;try{{host=c.getHostId();}}catch{{}}if(host==='local'){{manager=c;break;}}}}if(manager)break;if(fiber.child)stack.push(fiber.child);if(fiber.sibling)stack.push(fiber.sibling);}}
+while(stack.length){const fiber=stack.pop();if(!fiber||seen.has(fiber))continue;seen.add(fiber);let hook=fiber.memoizedState;for(let i=0;hook&&i<160;i++,hook=hook.next){const c=hook.memoizedState;if(!isManager(c))continue;let host=null;try{host=c.getHostId();}catch{}if(host==='local'){manager=c;break;}}if(manager)break;if(fiber.child)stack.push(fiber.child);if(fiber.sibling)stack.push(fiber.sibling);}
 if(!manager||manager.getHostId()!=='local')throw new Error('Codex local AppServerManager was not found.');
 const previous=globalThis[globalName];if(previous&&typeof previous.dispose==='function')previous.dispose();
-let sequence=0,disposed=false;const disposers=[];
-const emit=(kind,payload)=>{{if(disposed)return;const binding=globalThis[bindingName];if(typeof binding!=='function')return;try{{binding(JSON.stringify({{protocol,kind,sequence:++sequence,payload}}));}}catch{{}}}};
-const add=value=>{{if(typeof value==='function')disposers.push(value);}};
-add(manager.addNotificationCallback(notificationMethods,event=>emit('notification',event)));
+let sequence=0,disposed=false;const disposers=[],pendingServerRequests=new Map(),respondingServerRequestIds=new Set(),desktopResolvedDuringResponseIds=new Set();
+const emit=(kind,payload)=>{if(disposed)return;const binding=globalThis[bindingName];if(typeof binding!=='function')return;try{binding(JSON.stringify({protocol,kind,sequence:++sequence,payload}));}catch{}};
+const add=value=>{if(typeof value==='function')disposers.push(value);};
+const readRequestId=value=>{const id=value&&typeof value==='object'?(value.id??value.requestId??value.request_id):null;return Number.isSafeInteger(id)&&id>=0?id:null;};
+const approvalMethodByKind={commandExecution:'item/commandExecution/requestApproval',fileChange:'item/fileChange/requestApproval',permissionRequest:'item/permissions/requestApproval'},approvalKindByMethod=Object.fromEntries(Object.entries(approvalMethodByKind).map(([kind,method])=>[method,kind]));
+const captureApprovalRequest=event=>{if(!event||typeof event!=='object')return;const id=readRequestId(event),conversationId=typeof event.conversationId==='string'?event.conversationId.trim():'';if(id===null||!conversationId)return;let conversation=null;try{conversation=manager.getConversation(conversationId);}catch{}const requests=conversation&&Array.isArray(conversation.requests)?conversation.requests:[],request=requests.find(candidate=>readRequestId(candidate)===id)??null,method=request&&typeof request.method==='string'?request.method.trim():(approvalMethodByKind[event.kind]??'');if(!method)return;const pending={id,method,conversationId,params:request&&Object.prototype.hasOwnProperty.call(request,'params')?request.params:{threadId:conversationId,reason:event.reason??null},receivedAtIso:new Date().toISOString()};pendingServerRequests.set(id,pending);emit('notification',{method:'server/request',params:pending});};
+add(manager.addApprovalRequestListener(captureApprovalRequest));
+if(typeof manager.getRecentConversations==='function'){let recentConversations=[];try{recentConversations=manager.getRecentConversations()??[];}catch{}for(const summary of recentConversations){const conversationId=summary&&typeof summary.id==='string'?summary.id.trim():'';if(!conversationId)continue;let conversation=null;try{conversation=manager.getConversation(conversationId);}catch{}const requests=conversation&&Array.isArray(conversation.requests)?conversation.requests:[];for(const request of requests){const id=readRequestId(request),method=request&&typeof request.method==='string'?request.method.trim():'',kind=approvalKindByMethod[method];if(id===null||!kind)continue;captureApprovalRequest({conversationId,requestId:id,kind});}}}
+add(manager.addNotificationCallback(notificationMethods,event=>{if(event&&event.method==='serverRequest/resolved'){const id=readRequestId(event.params),wasPending=id!==null&&pendingServerRequests.delete(id),isResponding=id!==null&&respondingServerRequestIds.has(id);if(id!==null&&isResponding)desktopResolvedDuringResponseIds.add(id);if(id!==null&&(wasPending||isResponding))emit('notification',{method:'server/request/resolved',params:{id,mode:'desktop',resolvedAtIso:new Date().toISOString()}});}emit('notification',event);}));
 add(manager.addTurnCompletedListener(event=>emit('turnCompleted',event)));
-add(manager.addStreamRoleStateCallback((threadId,state)=>emit('streamRole',{{threadId,state}})));
-if(typeof manager.addConversationStateCallback==='function')add(manager.addConversationStateCallback((threadId,state)=>emit('conversationState',{{threadId,active:typeof manager.isConversationStreaming==='function'?manager.isConversationStreaming(threadId):null,runtimeStatus:state&&state.threadRuntimeStatus?state.threadRuntimeStatus:null,updatedAt:state&&typeof state.updatedAt==='number'?state.updatedAt:null}})));
-  const isMissingRollout=e=>{{let current=e;for(let depth=0;current&&depth<4;depth++){{const text=current instanceof Error?current.message:String(current);if(text.toLowerCase().includes('no rollout found for thread id'))return true;current=current&&typeof current==='object'?current.cause:null;}}return false;}};
+add(manager.addStreamRoleStateCallback((threadId,state)=>emit('streamRole',{threadId,state})));
+if(typeof manager.addConversationStateCallback==='function')add(manager.addConversationStateCallback((threadId,state)=>emit('conversationState',{threadId,active:typeof manager.isConversationStreaming==='function'?manager.isConversationStreaming(threadId):null,runtimeStatus:state&&state.threadRuntimeStatus?state.threadRuntimeStatus:null,updatedAt:state&&typeof state.updatedAt==='number'?state.updatedAt:null})));
+  const isMissingRollout=e=>{let current=e;for(let depth=0;current&&depth<4;depth++){const text=current instanceof Error?current.message:String(current);if(text.toLowerCase().includes('no rollout found for thread id'))return true;current=current&&typeof current==='object'?current.cause:null;}return false;};
   const threadMethodsWithTurns=new Set(['thread/read','thread/resume','thread/fork','thread/rollback']);
-  const trimThreadResult=(method,result)=>{{if(!threadMethodsWithTurns.has(method)||!result||typeof result!=='object')return result;const thread=result.thread,turns=thread&&Array.isArray(thread.turns)?thread.turns:null;if(!turns||turns.length<=10)return result;const start=turns.length-10,previousStart=Number.isFinite(result.threadTurnStartIndex)?Math.max(0,Math.floor(result.threadTurnStartIndex)):0;return{{...result,threadTurnStartIndex:previousStart+start,thread:{{...thread,turns:turns.slice(start)}}}};}};
-  const adapter={{protocol,async rpc(method,params){{if(typeof method!=='string'||!/^[A-Za-z0-9._\/-]{{1,160}}$/.test(method))throw new Error('Desktop RPC method is invalid.');if(method==='turn/start'){{const threadId=params&&typeof params.threadId==='string'?params.threadId.trim():'';if(!threadId)throw new Error('turn/start requires threadId.');try{{await manager.sendRequest('thread/resume',{{threadId}},{{priority:'critical'}});}}catch(error){{if(!isMissingRollout(error))throw error;}}}}const result=await manager.sendRequest(method,params??null,{{priority:'critical'}});return trimThreadResult(method,result);}},dispose(){{if(disposed)return;disposed=true;for(const fn of disposers.splice(0))try{{fn();}}catch{{}}if(globalThis[globalName]===adapter)delete globalThis[globalName];}}}};
-globalThis[globalName]=adapter;return{{protocol,hostId:manager.getHostId(),capabilities:['rpc','turn/start','turn/interrupt','events'],rendererUrl:globalThis.location&&globalThis.location.href?globalThis.location.href:'app://-/index.html'}};
-}})()"#,
-        protocol = ADAPTER_PROTOCOL,
-        global_name = serde_json::to_string(ADAPTER_GLOBAL).unwrap(),
-        binding_name = serde_json::to_string(binding_name).unwrap(),
-        methods = methods,
-    )
+  const trimThreadResult=(method,result)=>{if(!threadMethodsWithTurns.has(method)||!result||typeof result!=='object')return result;const thread=result.thread,turns=thread&&Array.isArray(thread.turns)?thread.turns:null;if(!turns||turns.length<=10)return result;const start=turns.length-10,previousStart=Number.isFinite(result.threadTurnStartIndex)?Math.max(0,Math.floor(result.threadTurnStartIndex)):0;return{...result,threadTurnStartIndex:previousStart+start,thread:{...thread,turns:turns.slice(start)}};};
+  const adapter={protocol,async rpc(method,params){
+    if(typeof method!=='string'||!/^[A-Za-z0-9._\/-]{1,160}$/.test(method))throw new Error('Desktop RPC method is invalid.');
+    if(method==='codex-web/local/server-requests/pending')return Array.from(pendingServerRequests.values());
+    if(method==='codex-web/local/server-requests/respond'){
+      const id=readRequestId(params);if(id===null)throw new Error('Desktop server request response requires an integer id.');
+      const pending=pendingServerRequests.get(id);if(!pending)throw new Error('No pending Desktop server request found for id '+String(id)+'.');
+      const electronBridge=globalThis.electronBridge;if(!electronBridge||typeof electronBridge.sendMessageFromView!=='function')throw new Error('Codex Desktop response bridge is unavailable.');
+      const hasError=Boolean(params&&typeof params==='object'&&params.error),result=params&&typeof params==='object'?params.result:null;let responseMessage=null;
+      if(pending.method==='item/commandExecution/requestApproval'){
+        const decision=hasError?'decline':(result&&typeof result.decision==='string'?result.decision:'');if(!decision)throw new Error('Command approval response requires a decision.');
+        responseMessage={type:'reply-with-command-execution-approval-decision',conversationId:pending.conversationId,requestId:id,decision};
+      }else if(pending.method==='item/fileChange/requestApproval'){
+        const decision=hasError?'decline':(result&&typeof result.decision==='string'?result.decision:'');if(!decision)throw new Error('File-change approval response requires a decision.');
+        responseMessage={type:'reply-with-file-change-approval-decision',conversationId:pending.conversationId,requestId:id,decision};
+      }else if(pending.method==='item/permissions/requestApproval'){
+        const response=hasError?{permissions:{},scope:'turn'}:result;if(!response||typeof response!=='object')throw new Error('Permission approval response is invalid.');
+        responseMessage={type:'reply-with-permissions-request-approval-response',conversationId:pending.conversationId,requestId:id,response};
+      }else throw new Error('Desktop server request method is not supported: '+pending.method+'.');
+      pendingServerRequests.delete(id);respondingServerRequestIds.add(id);let resolvedByDesktop=false;
+      try{await electronBridge.sendMessageFromView(responseMessage);}catch(error){
+        resolvedByDesktop=desktopResolvedDuringResponseIds.has(id);
+        if(!resolvedByDesktop){let conversation=null;try{conversation=manager.getConversation(pending.conversationId);}catch{}const requests=conversation&&Array.isArray(conversation.requests)?conversation.requests:null;if(requests===null||requests.some(request=>readRequestId(request)===id))pendingServerRequests.set(id,pending);}
+        throw error;
+      }finally{if(desktopResolvedDuringResponseIds.delete(id))resolvedByDesktop=true;respondingServerRequestIds.delete(id);}
+      if(!resolvedByDesktop)emit('notification',{method:'server/request/resolved',params:{id,method:pending.method,mode:'web',resolvedAtIso:new Date().toISOString()}});
+      return{};
+    }
+    if(method==='turn/start'){const threadId=params&&typeof params.threadId==='string'?params.threadId.trim():'';if(!threadId)throw new Error('turn/start requires threadId.');try{await manager.sendRequest('thread/resume',{threadId},{priority:'critical'});}catch(error){if(!isMissingRollout(error))throw error;}}
+    const result=await manager.sendRequest(method,params??null,{priority:'critical'});return trimThreadResult(method,result);
+  },dispose(){if(disposed)return;disposed=true;for(const fn of disposers.splice(0))try{fn();}catch{}if(globalThis[globalName]===adapter)delete globalThis[globalName];}};
+globalThis[globalName]=adapter;return{protocol,hostId:manager.getHostId(),capabilities:['rpc','turn/start','turn/interrupt','events','server-requests'],rendererUrl:globalThis.location&&globalThis.location.href?globalThis.location.href:'app://-/index.html'};
+})()"#
+        .replace("__PROTOCOL__", &ADAPTER_PROTOCOL.to_string())
+        .replace("__GLOBAL_NAME__", &serde_json::to_string(ADAPTER_GLOBAL).unwrap())
+        .replace("__BINDING_NAME__", &serde_json::to_string(binding_name).unwrap())
+        .replace("__METHODS__", &methods)
 }
 
 #[cfg(test)]
@@ -811,6 +849,12 @@ mod tests {
             assert!(!source.contains(forbidden));
         }
         assert!(source.contains("manager.sendRequest"));
+        assert!(source.contains("manager.addApprovalRequestListener"));
+        assert!(source.contains("manager.getRecentConversations"));
+        assert!(source.contains("electronBridge.sendMessageFromView"));
+        assert!(source.contains("desktopResolvedDuringResponseIds"));
+        assert!(source.contains("codex-web/local/server-requests/pending"));
+        assert!(source.contains("codex-web/local/server-requests/respond"));
         assert!(source.contains("no rollout found for thread id"));
     }
 

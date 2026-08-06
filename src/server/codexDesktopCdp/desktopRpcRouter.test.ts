@@ -4,7 +4,9 @@ import {
   dispatchDesktopAgentRpc,
   dispatchDesktopAgentLocalOperation,
   dispatchDesktopCdpRpc,
+  listDesktopServerRequests,
   readDesktopBridgeMode,
+  respondToDesktopServerRequest,
   shouldUseLocalCodexAppServer,
   type DesktopCdpRpcBridge,
 } from './desktopRpcRouter'
@@ -140,5 +142,89 @@ describe('Desktop CDP RPC routing', () => {
       relay,
       'desktop-a',
     )).resolves.toEqual({ handled: false })
+  })
+
+  it('routes approval snapshots and responses to the selected Desktop agent', async () => {
+    const relay = { rpc: vi.fn().mockResolvedValueOnce([{ id: 41 }]).mockResolvedValueOnce({}) }
+    const local = {
+      listPendingServerRequests: vi.fn(() => [{ id: 7 }]),
+      respondToServerRequest: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await expect(listDesktopServerRequests('agent', local, relay, 'desktop-a'))
+      .resolves.toEqual([{ id: 41 }])
+    await expect(respondToDesktopServerRequest(
+      'agent',
+      { id: 41, result: { decision: 'accept' } },
+      local,
+      relay,
+      'desktop-a',
+    )).resolves.toBeUndefined()
+
+    expect(relay.rpc).toHaveBeenNthCalledWith(
+      1,
+      'codex-web/local/server-requests/pending',
+      null,
+      'desktop-a',
+    )
+    expect(relay.rpc).toHaveBeenNthCalledWith(
+      2,
+      'codex-web/local/server-requests/respond',
+      { id: 41, result: { decision: 'accept' } },
+      'desktop-a',
+    )
+    expect(local.listPendingServerRequests).not.toHaveBeenCalled()
+    expect(local.respondToServerRequest).not.toHaveBeenCalled()
+  })
+
+  it('preserves local approval handling outside agent mode', async () => {
+    const relay = { rpc: vi.fn() }
+    const local = {
+      listPendingServerRequests: vi.fn(() => [{ id: 7 }]),
+      respondToServerRequest: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await expect(listDesktopServerRequests('off', local, relay)).resolves.toEqual([{ id: 7 }])
+    await respondToDesktopServerRequest(
+      'off',
+      { id: 7, result: { decision: 'decline' } },
+      local,
+      relay,
+    )
+
+    expect(local.respondToServerRequest).toHaveBeenCalledWith({
+      id: 7,
+      result: { decision: 'decline' },
+    })
+    expect(relay.rpc).not.toHaveBeenCalled()
+  })
+
+  it('routes approvals directly through CDP in local Desktop mode', async () => {
+    const relay = { rpc: vi.fn() }
+    const cdp = { rpc: vi.fn().mockResolvedValueOnce([{ id: 19 }]).mockResolvedValueOnce({}) }
+    const local = {
+      listPendingServerRequests: vi.fn(() => []),
+      respondToServerRequest: vi.fn().mockResolvedValue(undefined),
+    }
+
+    await expect(listDesktopServerRequests('cdp', local, relay, undefined, cdp))
+      .resolves.toEqual([{ id: 19 }])
+    await respondToDesktopServerRequest(
+      'cdp',
+      { id: 19, result: { decision: 'accept' } },
+      local,
+      relay,
+      undefined,
+      cdp,
+    )
+
+    expect(cdp.rpc).toHaveBeenNthCalledWith(1, 'codex-web/local/server-requests/pending', null)
+    expect(cdp.rpc).toHaveBeenNthCalledWith(
+      2,
+      'codex-web/local/server-requests/respond',
+      { id: 19, result: { decision: 'accept' } },
+    )
+    expect(relay.rpc).not.toHaveBeenCalled()
+    expect(local.listPendingServerRequests).not.toHaveBeenCalled()
   })
 })

@@ -4745,6 +4745,8 @@ watch(
 
 watch(routeDeviceId, async (deviceId, previousDeviceId) => {
   if (!hasInitialized.value || deviceId === previousDeviceId) return
+  stopPolling()
+  startPolling()
   if (isThreadRoute.value && routeThreadId.value) {
     primeSelectedThread(routeThreadId.value)
   } else {

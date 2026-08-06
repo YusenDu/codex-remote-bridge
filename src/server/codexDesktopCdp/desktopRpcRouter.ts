@@ -11,6 +11,11 @@ export interface DesktopAgentRpcBridge {
   rpc<T = unknown>(method: string, params: unknown, deviceId?: string): Promise<T>
 }
 
+export interface LocalServerRequestBridge {
+  listPendingServerRequests(): unknown[]
+  respondToServerRequest(payload: unknown): Promise<void>
+}
+
 export type DesktopCdpRpcDispatch =
   | { handled: false }
   | { handled: true; result: unknown }
@@ -104,6 +109,44 @@ export async function dispatchDesktopAgentLocalOperation(
     handled: true,
     result: await bridge.rpc(`codex-web/local/${operation}`, params ?? null, deviceId),
   }
+}
+
+export async function listDesktopServerRequests(
+  mode: DesktopBridgeMode,
+  localBridge: LocalServerRequestBridge,
+  agentBridge: DesktopAgentRpcBridge,
+  deviceId?: string,
+  cdpBridge?: DesktopAgentRpcBridge,
+): Promise<unknown[]> {
+  if (mode === 'off') return localBridge.listPendingServerRequests()
+  if (mode === 'cdp' && !cdpBridge) throw new Error('Codex Desktop CDP bridge is unavailable.')
+  const result = mode === 'agent'
+    ? await agentBridge.rpc<unknown>('codex-web/local/server-requests/pending', null, deviceId)
+    : await cdpBridge!.rpc<unknown>('codex-web/local/server-requests/pending', null)
+  if (!Array.isArray(result)) {
+    throw new Error('Desktop agent returned an invalid pending server-request snapshot.')
+  }
+  return result
+}
+
+export async function respondToDesktopServerRequest(
+  mode: DesktopBridgeMode,
+  payload: unknown,
+  localBridge: LocalServerRequestBridge,
+  agentBridge: DesktopAgentRpcBridge,
+  deviceId?: string,
+  cdpBridge?: DesktopAgentRpcBridge,
+): Promise<void> {
+  if (mode === 'off') {
+    await localBridge.respondToServerRequest(payload)
+    return
+  }
+  if (mode === 'agent') {
+    await agentBridge.rpc('codex-web/local/server-requests/respond', payload, deviceId)
+    return
+  }
+  if (!cdpBridge) throw new Error('Codex Desktop CDP bridge is unavailable.')
+  await cdpBridge.rpc('codex-web/local/server-requests/respond', payload)
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

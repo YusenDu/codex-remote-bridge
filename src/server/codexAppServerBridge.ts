@@ -19,7 +19,9 @@ import {
   dispatchDesktopAgentLocalOperation,
   dispatchDesktopAgentRpc,
   dispatchDesktopCdpRpc,
+  listDesktopServerRequests,
   readDesktopBridgeMode,
+  respondToDesktopServerRequest,
   type DesktopBridgeMode,
 } from './codexDesktopCdp/desktopRpcRouter.js'
 import {
@@ -9465,13 +9467,49 @@ export function createCodexBridgeMiddleware(): CodexBridgeMiddleware {
 
       if (req.method === 'POST' && url.pathname === '/codex-api/server-requests/respond') {
         const payload = await readJsonBody(req)
-        await appServer.respondToServerRequest(payload)
+        const body = asRecord(payload)
+        if (!body) {
+          setJson(res, 400, { error: 'Invalid response payload: expected object' })
+          return
+        }
+        const requestedDeviceId = body.deviceId === undefined
+          ? undefined
+          : normalizeDesktopAgentDeviceId(body.deviceId)
+        if (body.deviceId !== undefined && !requestedDeviceId) {
+          setJson(res, 400, { error: 'Invalid response payload: deviceId is invalid' })
+          return
+        }
+        const responsePayload = { ...body }
+        delete responsePayload.deviceId
+        await respondToDesktopServerRequest(
+          desktopBridgeMode,
+          responsePayload,
+          appServer,
+          desktopAgentRelay,
+          requestedDeviceId,
+          desktopCdpBridge,
+        )
         setJson(res, 200, { ok: true })
         return
       }
 
       if (req.method === 'GET' && url.pathname === '/codex-api/server-requests/pending') {
-        setJson(res, 200, { data: appServer.listPendingServerRequests() })
+        let requestedDeviceId: string | undefined
+        try {
+          requestedDeviceId = readDesktopAgentDeviceIdFromUrl(url)
+        } catch (error) {
+          setJson(res, 400, { error: getErrorMessage(error, 'deviceId is invalid') })
+          return
+        }
+        setJson(res, 200, {
+          data: await listDesktopServerRequests(
+            desktopBridgeMode,
+            appServer,
+            desktopAgentRelay,
+            requestedDeviceId,
+            desktopCdpBridge,
+          ),
+        })
         return
       }
 

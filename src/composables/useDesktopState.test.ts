@@ -81,9 +81,14 @@ function installTestWindow(initialStorage: Record<string, string> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  gatewayMocks.subscribeCodexNotifications.mockReset()
+  gatewayMocks.getPendingServerRequests.mockReset()
+  gatewayMocks.replyToServerRequest.mockReset()
+  gatewayMocks.setThreadQueueState.mockReset()
   gatewayMocks.getThreadQueueState.mockResolvedValue({})
   gatewayMocks.getThreadTitleCache.mockResolvedValue({ titles: {} })
   gatewayMocks.getWorkspaceRootsState.mockRejectedValue(new Error('no workspace roots state'))
+  gatewayMocks.setThreadQueueState.mockResolvedValue(undefined)
 })
 
 afterEach(() => {
@@ -736,6 +741,182 @@ describe('startup request deduplication', () => {
 
     expect(gatewayMocks.getThreadDetail).toHaveBeenCalledTimes(detailCallsBeforeEvent + 1)
     expect(gatewayMocks.getThreadGroupsPage).toHaveBeenCalledTimes(listCallsBeforeEvent)
+  })
+})
+
+describe('desktop approval requests', () => {
+  it('shows and clears a Desktop approval using the top-level conversation id', async () => {
+    installTestWindow()
+    let notificationHandler: (notification: { method: string; params?: unknown }) => void = () => {}
+    gatewayMocks.subscribeCodexNotifications.mockImplementation((handler) => {
+      notificationHandler = handler
+      return vi.fn()
+    })
+    gatewayMocks.getPendingServerRequests.mockReturnValue(new Promise(() => {}))
+
+    const state = useDesktopState()
+    state.primeSelectedThread('thread-approval')
+    state.startPolling()
+
+    notificationHandler({
+      method: 'server/request',
+      params: {
+        id: 91,
+        method: 'item/commandExecution/requestApproval',
+        conversationId: 'thread-approval',
+        params: {
+          command: 'git status',
+          turnId: 'turn-1',
+          itemId: 'item-1',
+        },
+        receivedAtIso: '2026-08-06T08:00:00.000Z',
+      },
+    })
+
+    expect(state.selectedThreadServerRequests.value).toEqual([
+      expect.objectContaining({
+        id: 91,
+        threadId: 'thread-approval',
+        method: 'item/commandExecution/requestApproval',
+      }),
+    ])
+
+    notificationHandler({
+      method: 'server/request/resolved',
+      params: { id: 91 },
+    })
+
+    expect(state.selectedThreadServerRequests.value).toEqual([])
+  })
+
+  it('keeps an approval visible when the Desktop response fails', async () => {
+    installTestWindow()
+    let notificationHandler: (notification: { method: string; params?: unknown }) => void = () => {}
+    gatewayMocks.subscribeCodexNotifications.mockImplementation((handler) => {
+      notificationHandler = handler
+      return vi.fn()
+    })
+    gatewayMocks.getPendingServerRequests.mockReturnValue(new Promise(() => {}))
+    gatewayMocks.replyToServerRequest.mockRejectedValue(new Error('Desktop agent is offline'))
+
+    const state = useDesktopState()
+    state.primeSelectedThread('thread-approval')
+    state.startPolling()
+    notificationHandler({
+      method: 'server/request',
+      params: {
+        id: 92,
+        method: 'item/fileChange/requestApproval',
+        conversationId: 'thread-approval',
+        params: { grantRoot: 'K:\\project' },
+      },
+    })
+
+    await expect(state.respondToPendingServerRequest({
+      id: 92,
+      result: { decision: 'accept' },
+    })).resolves.toBe(false)
+    expect(state.selectedThreadServerRequests.value).toHaveLength(1)
+    expect(state.error.value).toBe('Desktop agent is offline')
+  })
+
+  it('does not let a slow pending snapshot overwrite newer approval events', async () => {
+    installTestWindow()
+    let notificationHandler: (notification: { method: string; params?: unknown }) => void = () => {}
+    let resolveSnapshot: (rows: unknown[]) => void = () => {}
+    gatewayMocks.subscribeCodexNotifications.mockImplementation((handler) => {
+      notificationHandler = handler
+      return vi.fn()
+    })
+    gatewayMocks.getPendingServerRequests.mockReturnValue(new Promise((resolve) => {
+      resolveSnapshot = resolve
+    }))
+
+    const state = useDesktopState()
+    state.primeSelectedThread('thread-approval')
+    state.startPolling()
+    notificationHandler({
+      method: 'server/request',
+      params: {
+        id: 93,
+        method: 'item/commandExecution/requestApproval',
+        conversationId: 'thread-approval',
+        params: { command: 'git status' },
+      },
+    })
+    resolveSnapshot([])
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(state.selectedThreadServerRequests.value).toEqual([
+      expect.objectContaining({ id: 93 }),
+    ])
+  })
+
+  it('does not resurrect a resolved approval from a stale pending snapshot', async () => {
+    installTestWindow()
+    let notificationHandler: (notification: { method: string; params?: unknown }) => void = () => {}
+    let resolveSnapshot: (rows: unknown[]) => void = () => {}
+    gatewayMocks.subscribeCodexNotifications.mockImplementation((handler) => {
+      notificationHandler = handler
+      return vi.fn()
+    })
+    gatewayMocks.getPendingServerRequests.mockReturnValue(new Promise((resolve) => {
+      resolveSnapshot = resolve
+    }))
+
+    const state = useDesktopState()
+    state.primeSelectedThread('thread-approval')
+    state.startPolling()
+    notificationHandler({
+      method: 'server/request/resolved',
+      params: { id: 94 },
+    })
+    resolveSnapshot([{
+      id: 94,
+      method: 'item/fileChange/requestApproval',
+      conversationId: 'thread-approval',
+      params: { grantRoot: 'K:\\project' },
+    }])
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(state.selectedThreadServerRequests.value).toEqual([])
+  })
+
+  it('clears stale approvals and reconnects notifications after polling restarts', () => {
+    installTestWindow()
+    const firstStop = vi.fn()
+    const secondStop = vi.fn()
+    let notificationHandler: (notification: { method: string; params?: unknown }) => void = () => {}
+    gatewayMocks.subscribeCodexNotifications
+      .mockImplementationOnce((handler) => {
+        notificationHandler = handler
+        return firstStop
+      })
+      .mockImplementationOnce(() => secondStop)
+    gatewayMocks.getPendingServerRequests.mockReturnValue(new Promise(() => {}))
+
+    const state = useDesktopState()
+    state.primeSelectedThread('thread-approval')
+    state.startPolling()
+    notificationHandler({
+      method: 'server/request',
+      params: {
+        id: 95,
+        method: 'item/commandExecution/requestApproval',
+        conversationId: 'thread-approval',
+        params: { command: 'git status' },
+      },
+    })
+    expect(state.selectedThreadServerRequests.value).toHaveLength(1)
+
+    state.stopPolling()
+    expect(firstStop).toHaveBeenCalledOnce()
+    expect(state.selectedThreadServerRequests.value).toEqual([])
+
+    state.startPolling()
+    expect(gatewayMocks.subscribeCodexNotifications).toHaveBeenCalledTimes(2)
   })
 })
 

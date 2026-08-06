@@ -45,6 +45,7 @@ export function createRendererBootstrapSource(bindingName: string): string {
         'getHostId',
         'getConversation',
         'sendRequest',
+        'addApprovalRequestListener',
         'addNotificationCallback',
         'addTurnCompletedListener',
         'addStreamRoleStateCallback'
@@ -83,6 +84,9 @@ export function createRendererBootstrapSource(bindingName: string): string {
     let sequence = 0;
     let disposed = false;
     const disposers = [];
+    const pendingServerRequests = new Map();
+    const respondingServerRequestIds = new Set();
+    const desktopResolvedDuringResponseIds = new Set();
     const emit = (kind, payload) => {
       if (disposed) return;
       const binding = globalThis[bindingName];
@@ -94,6 +98,64 @@ export function createRendererBootstrapSource(bindingName: string): string {
     const addDisposer = (value) => {
       if (typeof value === 'function') disposers.push(value);
     };
+    const readRequestId = (value) => {
+      const id = value && typeof value === 'object'
+        ? (value.id ?? value.requestId ?? value.request_id)
+        : null;
+      return Number.isSafeInteger(id) && id >= 0 ? id : null;
+    };
+    const approvalMethodByKind = {
+      commandExecution: 'item/commandExecution/requestApproval',
+      fileChange: 'item/fileChange/requestApproval',
+      permissionRequest: 'item/permissions/requestApproval'
+    };
+    const approvalKindByMethod = Object.fromEntries(
+      Object.entries(approvalMethodByKind).map(([kind, method]) => [method, kind])
+    );
+    const captureApprovalRequest = (event) => {
+      if (!event || typeof event !== 'object') return;
+      const id = readRequestId(event);
+      const conversationId = typeof event.conversationId === 'string' ? event.conversationId.trim() : '';
+      if (id === null || !conversationId) return;
+      let conversation = null;
+      try { conversation = manager.getConversation(conversationId); } catch {}
+      const requests = conversation && Array.isArray(conversation.requests) ? conversation.requests : [];
+      const request = requests.find((candidate) => readRequestId(candidate) === id) ?? null;
+      const method = request && typeof request.method === 'string'
+        ? request.method.trim()
+        : (approvalMethodByKind[event.kind] ?? '');
+      if (id === null || !method) return;
+      const pending = {
+        id,
+        method,
+        conversationId,
+        params: request && Object.prototype.hasOwnProperty.call(request, 'params')
+          ? request.params
+          : { threadId: conversationId, reason: event.reason ?? null },
+        receivedAtIso: new Date().toISOString()
+      };
+      pendingServerRequests.set(id, pending);
+      emit('notification', { method: 'server/request', params: pending });
+    };
+    addDisposer(manager.addApprovalRequestListener(captureApprovalRequest));
+    if (typeof manager.getRecentConversations === 'function') {
+      let recentConversations = [];
+      try { recentConversations = manager.getRecentConversations() ?? []; } catch {}
+      for (const summary of recentConversations) {
+        const conversationId = summary && typeof summary.id === 'string' ? summary.id.trim() : '';
+        if (!conversationId) continue;
+        let conversation = null;
+        try { conversation = manager.getConversation(conversationId); } catch {}
+        const requests = conversation && Array.isArray(conversation.requests) ? conversation.requests : [];
+        for (const request of requests) {
+          const id = readRequestId(request);
+          const method = request && typeof request.method === 'string' ? request.method.trim() : '';
+          const kind = approvalKindByMethod[method];
+          if (id === null || !kind) continue;
+          captureApprovalRequest({ conversationId, requestId: id, kind });
+        }
+      }
+    }
     const isMissingRolloutError = (error) => {
       let current = error;
       for (let depth = 0; current && depth < 4; depth += 1) {
@@ -126,6 +188,18 @@ export function createRendererBootstrapSource(bindingName: string): string {
     };
 
     addDisposer(manager.addNotificationCallback(notificationMethods, (event) => {
+      if (event && event.method === 'serverRequest/resolved') {
+        const id = readRequestId(event.params);
+        const wasPending = id !== null && pendingServerRequests.delete(id);
+        const isResponding = id !== null && respondingServerRequestIds.has(id);
+        if (id !== null && isResponding) desktopResolvedDuringResponseIds.add(id);
+        if (id !== null && (wasPending || isResponding)) {
+          emit('notification', {
+            method: 'server/request/resolved',
+            params: { id, mode: 'desktop', resolvedAtIso: new Date().toISOString() }
+          });
+        }
+      }
       emit('notification', event);
     }));
     addDisposer(manager.addTurnCompletedListener((event) => {
@@ -174,6 +248,88 @@ export function createRendererBootstrapSource(bindingName: string): string {
         if (typeof method !== 'string' || !/^[A-Za-z0-9._/-]{1,160}$/.test(method)) {
           throw new Error('Desktop RPC method is invalid.');
         }
+        if (method === 'codex-web/local/server-requests/pending') {
+          return Array.from(pendingServerRequests.values());
+        }
+        if (method === 'codex-web/local/server-requests/respond') {
+          const id = readRequestId(params);
+          if (id === null) throw new Error('Desktop server request response requires an integer id.');
+          const pending = pendingServerRequests.get(id);
+          if (!pending) throw new Error('No pending Desktop server request found for id ' + String(id) + '.');
+          const electronBridge = globalThis.electronBridge;
+          if (!electronBridge || typeof electronBridge.sendMessageFromView !== 'function') {
+            throw new Error('Codex Desktop response bridge is unavailable.');
+          }
+          const hasError = Boolean(params && typeof params === 'object' && params.error);
+          const result = params && typeof params === 'object' ? params.result : null;
+          let responseMessage = null;
+          if (pending.method === 'item/commandExecution/requestApproval') {
+            const decision = hasError ? 'decline' : (result && typeof result.decision === 'string' ? result.decision : '');
+            if (!decision) throw new Error('Command approval response requires a decision.');
+            responseMessage = {
+              type: 'reply-with-command-execution-approval-decision',
+              conversationId: pending.conversationId,
+              requestId: id,
+              decision
+            };
+          } else if (pending.method === 'item/fileChange/requestApproval') {
+            const decision = hasError ? 'decline' : (result && typeof result.decision === 'string' ? result.decision : '');
+            if (!decision) throw new Error('File-change approval response requires a decision.');
+            responseMessage = {
+              type: 'reply-with-file-change-approval-decision',
+              conversationId: pending.conversationId,
+              requestId: id,
+              decision
+            };
+          } else if (pending.method === 'item/permissions/requestApproval') {
+            const response = hasError ? { permissions: {}, scope: 'turn' } : result;
+            if (!response || typeof response !== 'object') {
+              throw new Error('Permission approval response is invalid.');
+            }
+            responseMessage = {
+              type: 'reply-with-permissions-request-approval-response',
+              conversationId: pending.conversationId,
+              requestId: id,
+              response
+            };
+          } else {
+            throw new Error('Desktop server request method is not supported: ' + pending.method + '.');
+          }
+          pendingServerRequests.delete(id);
+          respondingServerRequestIds.add(id);
+          let resolvedByDesktop = false;
+          try {
+            await electronBridge.sendMessageFromView(responseMessage);
+          } catch (error) {
+            resolvedByDesktop = desktopResolvedDuringResponseIds.has(id);
+            if (!resolvedByDesktop) {
+              let conversation = null;
+              try { conversation = manager.getConversation(pending.conversationId); } catch {}
+              const requests = conversation && Array.isArray(conversation.requests)
+                ? conversation.requests
+                : null;
+              if (requests === null || requests.some((request) => readRequestId(request) === id)) {
+                pendingServerRequests.set(id, pending);
+              }
+            }
+            throw error;
+          } finally {
+            if (desktopResolvedDuringResponseIds.delete(id)) resolvedByDesktop = true;
+            respondingServerRequestIds.delete(id);
+          }
+          if (!resolvedByDesktop) {
+            emit('notification', {
+              method: 'server/request/resolved',
+              params: {
+                id,
+                method: pending.method,
+                mode: 'web',
+                resolvedAtIso: new Date().toISOString()
+              }
+            });
+          }
+          return {};
+        }
         const result = await manager.sendRequest(method, params ?? null, { priority: 'critical' });
         return trimThreadResult(method, result);
       },
@@ -190,7 +346,7 @@ export function createRendererBootstrapSource(bindingName: string): string {
     return {
       protocol,
       hostId: manager.getHostId(),
-      capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events'],
+      capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events', 'server-requests'],
       rendererUrl: globalThis.location && globalThis.location.href
         ? globalThis.location.href
         : 'app://-/index.html'

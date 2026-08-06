@@ -58,7 +58,7 @@ const target: CodexRendererTarget = {
 describe('CodexDesktopCdpBridge', () => {
   it('handshakes and starts a turn through the renderer adapter', async () => {
     const client = new FakeCdpClient([
-      { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events'] },
+      { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events', 'server-requests'] },
       { turn: { id: 'turn-real', status: 'inProgress' } },
     ])
     const bridge = new CodexDesktopCdpBridge({
@@ -89,7 +89,7 @@ describe('CodexDesktopCdpBridge', () => {
 
   it('forwards binding events and interrupts the real turn', async () => {
     const client = new FakeCdpClient([
-      { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events'] },
+      { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events', 'server-requests'] },
       null,
     ])
     const bridge = new CodexDesktopCdpBridge({
@@ -125,7 +125,7 @@ describe('CodexDesktopCdpBridge', () => {
 
   it('forwards generic app-server RPC through the verified Desktop manager', async () => {
     const client = new FakeCdpClient([
-      { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events'] },
+      { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events', 'server-requests'] },
       { data: [{ id: 'thread-1' }] },
     ])
     const bridge = new CodexDesktopCdpBridge({
@@ -148,7 +148,7 @@ describe('CodexDesktopCdpBridge', () => {
     await expect(incompatibleBridge.connect()).rejects.toThrow('protocol')
 
     const malformedClient = new FakeCdpClient([
-      { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events'] },
+      { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events', 'server-requests'] },
       { turn: {} },
     ])
     const malformedBridge = new CodexDesktopCdpBridge({
@@ -160,10 +160,10 @@ describe('CodexDesktopCdpBridge', () => {
 
   it('rediscovers and reconnects after the renderer socket closes', async () => {
     const firstClient = new FakeCdpClient([
-      { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events'] },
+      { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events', 'server-requests'] },
     ])
     const secondClient = new FakeCdpClient([
-      { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events'] },
+      { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events', 'server-requests'] },
       { turn: { id: 'turn-after-reconnect', status: 'inProgress' } },
     ])
     const connect = vi.fn()
@@ -190,10 +190,10 @@ describe('CodexDesktopCdpBridge', () => {
     vi.useFakeTimers()
     try {
       const firstClient = new FakeCdpClient([
-        { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events'] },
+        { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events', 'server-requests'] },
       ])
       const secondClient = new FakeCdpClient([
-        { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events'] },
+        { protocol: 1, hostId: 'local', capabilities: ['rpc', 'turn/start', 'turn/interrupt', 'events', 'server-requests'] },
       ])
       const connect = vi.fn()
         .mockResolvedValueOnce(firstClient)

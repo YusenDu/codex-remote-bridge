@@ -38,6 +38,7 @@ export type BridgeTurnStartMetadata = {
 
 type ServerRequestReplyBody = {
   id: number
+  deviceId?: string
   result?: unknown
   error?: {
     code?: number
@@ -399,12 +400,13 @@ export function subscribeRpcNotifications(
 export async function respondServerRequest(body: ServerRequestReplyBody): Promise<void> {
   let response: Response
   try {
+    const deviceId = getActiveDeviceId()
     response = await fetch('/codex-api/server-requests/respond', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify(deviceId ? { ...body, deviceId } : body),
     })
   } catch (error) {
     throw new CodexApiError(
@@ -433,7 +435,11 @@ export async function respondServerRequest(body: ServerRequestReplyBody): Promis
 }
 
 export async function fetchPendingServerRequests(): Promise<unknown[]> {
-  const response = await fetch('/codex-api/server-requests/pending')
+  const deviceId = getActiveDeviceId()
+  const endpoint = deviceId
+    ? `/codex-api/server-requests/pending?deviceId=${encodeURIComponent(deviceId)}`
+    : '/codex-api/server-requests/pending'
+  const response = await fetch(endpoint)
 
   let payload: unknown = null
   try {

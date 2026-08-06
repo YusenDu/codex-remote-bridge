@@ -7,10 +7,12 @@ import {
 
 function createRendererFixture() {
   const sent: Array<{ method: string; params: unknown; options: unknown }> = []
+  const approvalCallbacks: Array<(event: unknown) => void> = []
+  const clientMessages: unknown[] = []
   const notificationCallbacks: Array<(event: unknown) => void> = []
   const turnCallbacks: Array<(event: unknown) => void> = []
   const streamCallbacks: Array<(threadId: string, state: unknown) => void> = []
-  const disposeSpies = [vi.fn(), vi.fn(), vi.fn()]
+  const disposeSpies = [vi.fn(), vi.fn(), vi.fn(), vi.fn()]
   const sendRequest = vi.fn<(method: string, params: unknown, options: unknown) => Promise<unknown>>(
     async (method: string, params: unknown, options: unknown) => {
       sent.push({ method, params, options })
@@ -18,10 +20,18 @@ function createRendererFixture() {
       return {}
     },
   )
+  const sendMessageFromView = vi.fn(async (message: unknown) => {
+    clientMessages.push(message)
+  })
   const manager = {
     getHostId: () => 'local',
-    getConversation: () => ({ id: 'thread-1' }),
+    getRecentConversations: vi.fn(() => [] as Array<{ id: string }>),
+    getConversation: vi.fn(() => ({ id: 'thread-1', requests: [] as unknown[] })),
     sendRequest,
+    addApprovalRequestListener: vi.fn((callback: (event: unknown) => void) => {
+      approvalCallbacks.push(callback)
+      return disposeSpies[3]
+    }),
     addNotificationCallback: vi.fn((_methods: string[], callback: (event: unknown) => void) => {
       notificationCallbacks.push(callback)
       return disposeSpies[0]
@@ -44,6 +54,9 @@ function createRendererFixture() {
   const context: Record<string, unknown> = {
     __codexRoot: { _internalRoot: { current: fiber } },
     bridgeBinding: (payload: string) => emitted.push(payload),
+    electronBridge: {
+      sendMessageFromView,
+    },
     Date,
     JSON,
     Symbol,
@@ -51,7 +64,19 @@ function createRendererFixture() {
     clearTimeout,
   }
   context.globalThis = context
-  return { context, disposeSpies, emitted, manager, notificationCallbacks, sent, streamCallbacks, turnCallbacks }
+  return {
+    approvalCallbacks,
+    clientMessages,
+    context,
+    disposeSpies,
+    emitted,
+    manager,
+    notificationCallbacks,
+    sendMessageFromView,
+    sent,
+    streamCallbacks,
+    turnCallbacks,
+  }
 }
 
 describe('Codex Desktop renderer bootstrap', () => {
@@ -129,6 +154,156 @@ describe('Codex Desktop renderer bootstrap', () => {
 
     await vm.runInNewContext(source, fixture.context)
     expect(fixture.disposeSpies.every((dispose) => dispose.mock.calls.length === 1)).toBe(true)
+  })
+
+  it('mirrors Desktop approval requests and responds through the original manager', async () => {
+    const fixture = createRendererFixture()
+    await vm.runInNewContext(createRendererBootstrapSource('bridgeBinding'), fixture.context)
+    const adapter = fixture.context[CODEX_DESKTOP_ADAPTER_GLOBAL] as {
+      rpc: (method: string, params: unknown) => Promise<unknown>
+    }
+
+    const request = {
+      id: 41,
+      method: 'item/commandExecution/requestApproval',
+      params: { threadId: 'thread-1', turnId: 'turn-1', command: 'echo hello' },
+    }
+    fixture.manager.getConversation.mockReturnValue({ id: 'thread-1', requests: [request] })
+    fixture.approvalCallbacks[0]({
+      conversationId: 'thread-1',
+      requestId: 41,
+      kind: 'commandExecution',
+      reason: 'Run this command?',
+    })
+
+    expect(fixture.emitted.map((payload) => JSON.parse(payload))).toContainEqual(expect.objectContaining({
+      kind: 'notification',
+      payload: {
+        method: 'server/request',
+        params: expect.objectContaining({
+          id: 41,
+          method: 'item/commandExecution/requestApproval',
+          params: request.params,
+        }),
+      },
+    }))
+    await expect(adapter.rpc('codex-web/local/server-requests/pending', null)).resolves.toEqual([
+      expect.objectContaining({ id: 41, method: 'item/commandExecution/requestApproval' }),
+    ])
+
+    await expect(adapter.rpc('codex-web/local/server-requests/respond', {
+      id: 41,
+      result: { decision: 'accept' },
+    })).resolves.toEqual({})
+    expect(fixture.clientMessages).toEqual([{
+      type: 'reply-with-command-execution-approval-decision',
+      conversationId: 'thread-1',
+      requestId: 41,
+      decision: 'accept',
+    }])
+    await expect(adapter.rpc('codex-web/local/server-requests/pending', null)).resolves.toEqual([])
+    await expect(adapter.rpc('codex-web/local/server-requests/respond', {
+      id: 41,
+      result: { decision: 'decline' },
+    })).rejects.toThrow('No pending Desktop server request')
+  })
+
+  it('restores approvals that were already pending when the adapter starts', async () => {
+    const fixture = createRendererFixture()
+    const request = {
+      id: 62,
+      method: 'item/fileChange/requestApproval',
+      params: { threadId: 'thread-existing', turnId: 'turn-1', grantRoot: 'K:\\work' },
+    }
+    fixture.manager.getRecentConversations.mockReturnValue([{ id: 'thread-existing' }])
+    fixture.manager.getConversation.mockReturnValue({ id: 'thread-existing', requests: [request] })
+
+    await vm.runInNewContext(createRendererBootstrapSource('bridgeBinding'), fixture.context)
+    const adapter = fixture.context[CODEX_DESKTOP_ADAPTER_GLOBAL] as {
+      rpc: (method: string, params: unknown) => Promise<unknown>
+    }
+
+    await expect(adapter.rpc('codex-web/local/server-requests/pending', null)).resolves.toEqual([
+      expect.objectContaining({
+        id: 62,
+        conversationId: 'thread-existing',
+        method: 'item/fileChange/requestApproval',
+        params: request.params,
+      }),
+    ])
+  })
+
+  it('removes approvals resolved in Desktop and removes the native listener on dispose', async () => {
+    const fixture = createRendererFixture()
+    await vm.runInNewContext(createRendererBootstrapSource('bridgeBinding'), fixture.context)
+    const adapter = fixture.context[CODEX_DESKTOP_ADAPTER_GLOBAL] as {
+      dispose: () => void
+      rpc: (method: string, params: unknown) => Promise<unknown>
+    }
+
+    const request = {
+      id: 73,
+      method: 'item/fileChange/requestApproval',
+      params: { threadId: 'thread-1', turnId: 'turn-1', grantRoot: 'K:\\work' },
+    }
+    fixture.manager.getConversation.mockReturnValue({ id: 'thread-1', requests: [request] })
+    fixture.approvalCallbacks[0]({
+      conversationId: 'thread-1',
+      requestId: 73,
+      kind: 'fileChange',
+    })
+    fixture.notificationCallbacks[0]({
+      method: 'serverRequest/resolved',
+      params: { requestId: 73 },
+    })
+
+    await expect(adapter.rpc('codex-web/local/server-requests/pending', null)).resolves.toEqual([])
+    expect(fixture.emitted.map((payload) => JSON.parse(payload))).toContainEqual(expect.objectContaining({
+      kind: 'notification',
+      payload: {
+        method: 'server/request/resolved',
+        params: expect.objectContaining({ id: 73, mode: 'desktop' }),
+      },
+    }))
+
+    adapter.dispose()
+    expect(fixture.disposeSpies[3]).toHaveBeenCalledOnce()
+  })
+
+  it('does not restore an approval when Desktop resolves it while a Web response fails', async () => {
+    const fixture = createRendererFixture()
+    let rejectSend: (error: Error) => void = () => {}
+    fixture.sendMessageFromView.mockImplementation(() => new Promise((_, reject) => {
+      rejectSend = reject
+    }))
+    await vm.runInNewContext(createRendererBootstrapSource('bridgeBinding'), fixture.context)
+    const adapter = fixture.context[CODEX_DESKTOP_ADAPTER_GLOBAL] as {
+      rpc: (method: string, params: unknown) => Promise<unknown>
+    }
+    const request = {
+      id: 74,
+      method: 'item/commandExecution/requestApproval',
+      params: { threadId: 'thread-1', turnId: 'turn-1', command: 'echo hello' },
+    }
+    fixture.manager.getConversation.mockReturnValue({ id: 'thread-1', requests: [request] })
+    fixture.approvalCallbacks[0]({
+      conversationId: 'thread-1',
+      requestId: 74,
+      kind: 'commandExecution',
+    })
+
+    const response = adapter.rpc('codex-web/local/server-requests/respond', {
+      id: 74,
+      result: { decision: 'accept' },
+    })
+    fixture.notificationCallbacks[0]({
+      method: 'serverRequest/resolved',
+      params: { requestId: 74 },
+    })
+    rejectSend(new Error('Desktop already resolved the request'))
+
+    await expect(response).rejects.toThrow('Desktop already resolved')
+    await expect(adapter.rpc('codex-web/local/server-requests/pending', null)).resolves.toEqual([])
   })
 
   it('trims large thread snapshots before they leave the Desktop renderer', async () => {
